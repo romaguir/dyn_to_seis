@@ -27,7 +27,8 @@ class model_2d(object):
         self.T_array = np.zeros((1,1))
         self.f_array = np.zeros((1,1))
 
-    def read_2d(self,path_to_file,theta_max_deg,npts_rad,npts_theta,fmt='pvk',**kwargs):
+    #def read_2d(self,path_to_file,theta_max_deg,npts_rad,npts_theta,fmt='pvk',**kwargs):
+    def read_2d(self,path_to_file,fmt='pvk',**kwargs):
         '''
         reads in temperature and composition data from a cylindrical geodynamic model
 
@@ -134,12 +135,12 @@ class model_2d(object):
 
     def plot_TandC(self,type='scatter'):
         if type=='scatter':
-           fig,axes = plt.subplots(1,2,sharey=True,figsize=(8,8),facecolor='grey',frameon=False)
+           fig,axes = plt.subplots(1,2,sharey=True,figsize=(12,8),facecolor='grey',frameon=False)
            ax0 = axes[0].scatter(self.x,self.y,c=self.T,cmap='hot',edgecolor='none')
-           cb0 = plt.colorbar(ax0,ax=axes[0],orientation='horizontal',label='T (C)')
+           cb0 = plt.colorbar(ax0,ax=axes[0],orientation='vertical',label='T (C)')
            axes[0].axis('off')
            ax1 = axes[1].scatter(self.x,self.y,c=self.f,cmap='viridis',edgecolor='none')
-           cb1 = plt.colorbar(ax1,ax=axes[1],orientation='horizontal',label='basalt fraction')
+           cb1 = plt.colorbar(ax1,ax=axes[1],orientation='vertical',label='basalt fraction')
            axes[1].axis('off')
         elif type=='imshow':
            extent = (np.min(self.theta_axis),np.max(self.theta_axis),
