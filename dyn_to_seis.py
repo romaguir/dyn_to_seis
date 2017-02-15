@@ -120,18 +120,83 @@ class model_2d(object):
            self.T_array += surf_temp
            self.T = np.ravel(self.T_array)
 
-    def velocity_conversion(self,lookup_table,adiabat_file):
-        tables = h5py.File(lookup_table,'r')
-        #read harzburgite lookuptable
-        harz_vp = tables['harzburgite']['vp'][:]
-        harz_vs = tables['harzburgite']['vs'][:]
-        harz_rho = tables['harzburgite']['rho'][:]
-        #read morb lookuptable
-        morb_vp = tables['morb']['vp'][:]
-        morb_vs = tables['morb']['vs'][:]
-        morb_rho = tables['morb']['rho'][:]
+    def velocity_conversion(self,lookup_tables,composition):
+        '''
+        performs the velocity conversion.
 
-        self.add_adiabat(adiabat_file)
+        args:
+
+           lookup_tables: str
+                          path to h5py lookup tables
+
+           composition: str
+                        one of either 'pyrolite', 'harzburgite', morb', or, 'mixture'
+                        'mixture' uses a mechanical mixture of morb and harzburgite
+        '''
+        tables = h5py.File(lookup_tables,'r')
+        #read harzburgite lookuptable
+        harz_vp_table = tables['harzburgite']['vp'][:]
+        harz_vs_table = tables['harzburgite']['vs'][:]
+        harz_rho_table = tables['harzburgite']['rho'][:]
+        #read morb lookuptable
+        morb_vp_table = tables['morb']['vp'][:]
+        morb_vs_table = tables['morb']['vs'][:]
+        morb_rho_table = tables['morb']['rho'][:]
+        #read topology
+        P0 = tables['pyrolite']['P0'].value
+        T0 = tables['pyrolite']['T0'].value
+        nP = tables['pyrolite']['nP'].value
+        nT = tables['pyrolite']['nT'].value
+        dP = tables['pyrolite']['dP'].value
+        dT = tables['pyrolite']['dT'].value
+        P_table_axis = np.arange(P0,((nP-1)*dP+P0+dP),dP)
+        T_table_axis = np.arange(T0,((nT-1)*dT+T0+dT),dT)
+        #create interpolators
+        harz_vp_interpolator  = interp2d(P_table_axis,T_table_axis, harz_vp_table)
+        harz_vs_interpolator  = interp2d(P_table_axis,T_table_axis, harz_vs_table)
+        harz_rho_interpolator = interp2d(P_table_axis,T_table_axis, harz_rho_table)
+        morb_vp_interpolator  = interp2d(P_table_axis,T_table_axis, morb_vp_table)
+        morb_vs_interpolator  = interp2d(P_table_axis,T_table_axis, morb_vs_table)
+        morb_rho_interpolator = interp2d(P_table_axis,T_table_axis, morb_rho_table)
+        #point by point velocity conversion
+        self.vp_array = np.zeros(self.T_array.shape)
+        self.vs_array = np.zeros(self.T_array.shape)
+        self.rho_array = np.zeros(self.T_array.shape)
+        self.dvp_array = np.zeros(self.T_array.shape)
+        self.dvs_array = np.zeros(self.T_array.shape)
+        self.drho_array = np.zeros(self.T_array.shape)
+        for i in range(0,len(self.depth_axis)):
+            for j in range(0,len(self.theta_axis)):
+                P_here = self.P[::-1][i]
+                T_here = self.T_array[i,j]
+                f_here = self.f_array[i,j]
+                vp_harz = harz_vp_interpolator(P_here,T_here)
+                vs_harz = harz_vs_interpolator(P_here,T_here)
+                rho_harz = harz_rho_interpolator(P_here,T_here)
+                vp_morb = morb_vp_interpolator(P_here,T_here)
+                vs_morb = morb_vs_interpolator(P_here,T_here)
+                rho_morb = morb_rho_interpolator(P_here,T_here)
+                self.vp_array[i,j] = f_here*vp_morb + (1-f_here)*vp_harz
+                self.vs_array[i,j] = f_here*vs_morb + (1-f_here)*vs_harz
+                self.rho_array[i,j] = f_here*rho_morb + (1-f_here)*rho_harz
+
+        vp_avg = np.average(self.vp_array,axis=1)
+        vs_avg = np.average(self.vs_array,axis=1)
+        rho_avg = np.average(self.rho_array,axis=1)
+
+        #calculate the percent deviation of vp, vs, and rho
+        for i in range(0,len(self.depth_axis)):
+            for j in range(0,len(self.theta_axis)):
+                self.dvp_array[i,j] = ((self.vp_array[i,j] - vp_avg[i])/vp_avg[i]) * 100.0
+                self.dvs_array[i,j] = ((self.vs_array[i,j] - vs_avg[i])/vs_avg[i]) * 100.0
+                self.drho_array[i,j] = ((self.rho_array[i,j] - rho_avg[i])/rho_avg[i]) * 100.0
+
+        self.vp = np.ravel(self.vp_array) 
+        self.vs = np.ravel(self.vs_array) 
+        self.rho = np.ravel(self.rho_array) 
+        self.dvp = np.ravel(self.dvp_array) 
+        self.dvs = np.ravel(self.dvs_array) 
+        self.drho = np.ravel(self.drho_array) 
 
     def plot_TandC(self,type='scatter'):
         if type=='scatter':
@@ -155,6 +220,42 @@ class model_2d(object):
            axes[1].set_xlabel('theta (deg)')
         plt.show()
 
+    def plot_field(self,field,type='scatter'):
+        '''
+        plot a 2d model field.
+
+        args:
+
+           field: str
+                  variable to plot ['vp','vs','rho','dvp','dvs',or 'drho']
+        '''
+        if type == 'scatter':
+            if field=='vp': 
+                plt.scatter(self.x,self.y,c=self.vp,edgecolor='none',facecolor='grey')
+                plt.frameon=False
+                plt.colorbar(label='$V_p$ (km/s)')
+            elif field=='vs': 
+                plt.scatter(self.x,self.y,c=self.vs,edgecolor='none',facecolor='grey')
+                plt.colorbar(label='$V_s$ (km/s)')
+                plt.frameon=False
+            elif field=='rho': 
+                plt.scatter(self.x,self.y,c=self.rho,edgecolor='none',facecolor='grey')
+                plt.colorbar(label='$\rho$ (g/cm$^3$)')
+                plt.frameon=False
+            elif field=='dvp': 
+                plt.scatter(self.x,self.y,c=self.dvp,edgecolor='none',facecolor='grey',cmap='seismic_r',vmin=-5,vmax=5)
+                plt.colorbar(label='$\delta V_p$ (%)')
+                plt.frameon=False
+            elif field=='dvs': 
+                plt.scatter(self.x,self.y,c=self.dvs,edgecolor='none',facecolor='grey',cmap='seismic_r',vmin=-5,vmax=5)
+                plt.colorbar(label='$\delta V_s$ (%)')
+                plt.frameon=False
+            elif field=='drho': 
+                plt.scatter(self.x,self.y,c=self.drho,edgecolor='none',facecolor='grey',cmap='seismic_r',vmin=-5,vmax=5)
+                plt.colorbar(label='$\delta \rho$ (%)')
+                plt.frameon=False
+            plt.show()
+
     def plot_radial_average(self,var='T'):
         if var=='T':
             plt.plot(np.average(self.T_array,axis=1),self.depth_axis[::-1])
@@ -168,3 +269,7 @@ class model_2d(object):
             plt.xlabel('basalt fraction')
             plt.ylabel('depth (km)')
             plt.show()
+
+    def write_2d_output(self,filename,fmt='pvk'):
+        if fmt == 'pvk':
+            np.savetxt(filename,np.c_[self.x,self.y,self.theta,self.depth,self.T,self.dvp,self.dvs,self.drho,self.f], fmt='%3f')
