@@ -213,7 +213,7 @@ class model_2d(object):
         self.dvs = np.ravel(self.dvs_array) 
         self.drho = np.ravel(self.drho_array) 
 
-    def twoD_to_threeD(self,dz,dlat,dlon,par='dvs'):
+    def twoD_to_threeD(self,dz,dlat,dlon,var='dvs'):
         #first interpolate 2D grid to new grid (if a different resolution is required)
         npts_rad   = abs(int(np.max(self.depth_axis)-np.min(self.depth_axis))/dz)
         npts_theta = abs(int(np.max(self.theta_axis)-np.min(self.theta_axis))/dlat)+1
