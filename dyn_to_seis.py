@@ -2,15 +2,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 import h5py
 from scipy.interpolate import interp1d, interp2d
-from seis_tools.models import models_1d
-
-#TODO: write the following functions...
-#      get_dvs(P,T,f)
+from seis_tools.models import models_1d,models_3d
+from scipy.misc import imresize
 
 class model_2d(object):
     #TODO: write the following functions...
-    #      add_adiabat
-    #      velocity_conversion
     #      rotate_cylinder
     def init():
         self.depth = np.zeros(1)
@@ -27,7 +23,6 @@ class model_2d(object):
         self.T_array = np.zeros((1,1))
         self.f_array = np.zeros((1,1))
 
-    #def read_2d(self,path_to_file,theta_max_deg,npts_rad,npts_theta,fmt='pvk',**kwargs):
     def read_2d(self,path_to_file,fmt='pvk',**kwargs):
         '''
         reads in temperature and composition data from a cylindrical geodynamic model
@@ -120,7 +115,7 @@ class model_2d(object):
            self.T_array += surf_temp
            self.T = np.ravel(self.T_array)
 
-    def velocity_conversion(self,lookup_tables,composition):
+    def velocity_conversion(self,lookup_tables,composition,**kwargs):
         '''
         performs the velocity conversion.
 
@@ -132,7 +127,17 @@ class model_2d(object):
            composition: str
                         one of either 'pyrolite', 'harzburgite', morb', or, 'mixture'
                         'mixture' uses a mechanical mixture of morb and harzburgite
+
+        kwargs:
+           ref_theta_range: tuple
+                            defines the theta range of what we consider to be 
+                            'average' mantle.  default is the entire model.
+                            The entire model may not be desirable for the half
+                            cylinder models if certain depths are heavily biased
+                            by the presence strong dynamical structure
         '''
+
+        ref_theta_range = kwargs.get('ref_theta_range','full')
         tables = h5py.File(lookup_tables,'r')
         #read harzburgite lookuptable
         harz_vp_table = tables['harzburgite']['vp'][:]
@@ -180,9 +185,19 @@ class model_2d(object):
                 self.vs_array[i,j] = f_here*vs_morb + (1-f_here)*vs_harz
                 self.rho_array[i,j] = f_here*rho_morb + (1-f_here)*rho_harz
 
-        vp_avg = np.average(self.vp_array,axis=1)
-        vs_avg = np.average(self.vs_array,axis=1)
-        rho_avg = np.average(self.rho_array,axis=1)
+        if ref_theta_range == 'full':
+            vp_avg = np.average(self.vp_array,axis=1)
+            vs_avg = np.average(self.vs_array,axis=1)
+            rho_avg = np.average(self.rho_array,axis=1)
+        else:
+            istart = ((ref_theta_range[0]-np.min(self.theta))/self.dtheta)
+            iend = ((ref_theta_range[1]-np.min(self.theta))/self.dtheta)
+            vp_avg = np.average(self.vp_array[:,istart:iend],axis=1)
+            vs_avg = np.average(self.vs_array[:,istart:iend],axis=1)
+            rho_avg = np.average(self.rho_array[:,istart:iend],axis=1)
+            plt.plot(vs_avg)
+            plt.show()
+
 
         #calculate the percent deviation of vp, vs, and rho
         for i in range(0,len(self.depth_axis)):
@@ -197,6 +212,22 @@ class model_2d(object):
         self.dvp = np.ravel(self.dvp_array) 
         self.dvs = np.ravel(self.dvs_array) 
         self.drho = np.ravel(self.drho_array) 
+
+    def twoD_to_threeD(self,dz,dlat,dlon,par='dvs'):
+        #first interpolate 2D grid to new grid (if a different resolution is required)
+        npts_rad   = abs(int(np.max(self.depth_axis)-np.min(self.depth_axis))/dz)
+        npts_theta = abs(int(np.max(self.theta_axis)-np.min(self.theta_axis))/dlat)+1
+        npts_phi = int(360.0/dlon)+1
+        print npts_rad, npts_theta,npts_phi
+
+        field = imresize(self.dvs_array,(npts_rad,npts_theta))
+        print 'shape of field', field.shape
+        mod_3d = models_3d.model_3d(drad=dz,latmin=-90,latmax=90+dlat,dlat=dlat,
+                                    lonmin=0,lonmax=360+dlon,dlon=dlon)
+        for i in range(0,len(mod_3d.lon)-1):
+            mod_3d.data[:,:,i] = field
+
+        return mod_3d
 
     def plot_TandC(self,type='scatter'):
         if type=='scatter':
@@ -232,28 +263,28 @@ class model_2d(object):
         if type == 'scatter':
             if field=='vp': 
                 plt.scatter(self.x,self.y,c=self.vp,edgecolor='none',facecolor='grey')
-                plt.frameon=False
+                plt.axis('off')
                 plt.colorbar(label='$V_p$ (km/s)')
             elif field=='vs': 
                 plt.scatter(self.x,self.y,c=self.vs,edgecolor='none',facecolor='grey')
                 plt.colorbar(label='$V_s$ (km/s)')
-                plt.frameon=False
+                plt.axis('off')
             elif field=='rho': 
                 plt.scatter(self.x,self.y,c=self.rho,edgecolor='none',facecolor='grey')
                 plt.colorbar(label='$\rho$ (g/cm$^3$)')
-                plt.frameon=False
+                plt.axis('off')
             elif field=='dvp': 
                 plt.scatter(self.x,self.y,c=self.dvp,edgecolor='none',facecolor='grey',cmap='seismic_r',vmin=-5,vmax=5)
                 plt.colorbar(label='$\delta V_p$ (%)')
-                plt.frameon=False
+                plt.axis('off')
             elif field=='dvs': 
                 plt.scatter(self.x,self.y,c=self.dvs,edgecolor='none',facecolor='grey',cmap='seismic_r',vmin=-5,vmax=5)
                 plt.colorbar(label='$\delta V_s$ (%)')
-                plt.frameon=False
+                plt.axis('off')
             elif field=='drho': 
                 plt.scatter(self.x,self.y,c=self.drho,edgecolor='none',facecolor='grey',cmap='seismic_r',vmin=-5,vmax=5)
                 plt.colorbar(label='$\delta \rho$ (%)')
-                plt.frameon=False
+                plt.axis('off')
             plt.show()
 
     def plot_radial_average(self,var='T'):
@@ -272,4 +303,4 @@ class model_2d(object):
 
     def write_2d_output(self,filename,fmt='pvk'):
         if fmt == 'pvk':
-            np.savetxt(filename,np.c_[self.x,self.y,self.theta,self.depth,self.T,self.dvp,self.dvs,self.drho,self.f], fmt='%3f')
+            np.savetxt(filename,np.c_[self.x,self.y,self.theta,self.depth,self.T,self.f,self.dvp,self.dvs,self.drho], fmt='%3f')
