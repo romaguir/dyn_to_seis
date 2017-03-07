@@ -323,6 +323,24 @@ class model_2d(object):
                 plt.colorbar(label='$\delta \rho$ (%)')
                 plt.axis('off')
             plt.show()
+        if type == 'imshow':
+            if field=='vp': 
+                plt.imshow(np.flipud(self.vp_array),aspect='auto',cmap='seismic_r')
+                plt.axis('off')
+                plt.colorbar(label='$V_p$ (km/s)')
+            if field=='vs': 
+                plt.imshow(np.flipud(self.vs_array),aspect='auto',cmap='seismic_r')
+                plt.axis('off')
+                plt.colorbar(label='$V_s$ (km/s)')
+            if field=='dvp': 
+                plt.imshow(np.flipud(self.dvp_array),aspect='auto',cmap='seismic_r')
+                plt.axis('off')
+                plt.colorbar(label='$dV_p/V_p$ ((%))',cmap='seismic_r')
+            if field=='dvs': 
+                plt.imshow(np.flipud(self.dvs_array),aspect='auto',cmap='seismic_r')
+                plt.axis('off')
+                plt.colorbar(label='$dV_s/V_s$ ((%))')
+            plt.show()
 
     def plot_radial_average(self,var='T'):
         if var=='T':
@@ -696,7 +714,7 @@ def write_s40_filter_inputs(model_3d,**kwargs):
    #initializations
    lat = np.arange(-90,90,lat_spacing)
    lon = np.arange(0,360.0,lon_spacing)
-   depth =  np.linspace(0,2878,n_layers)
+   depth =  np.linspace(0,2885,n_layers)
    lon_min = min(model_3d.lon)
    lon_max = max(model_3d.lon)
    lat_min = min(model_3d.lat)
