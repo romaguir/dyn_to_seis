@@ -3,11 +3,10 @@ import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.misc import imresize
-from scipy.interpolate import interp1d, interp2d,interpn
+from scipy.interpolate import interp1d, interp2d,interpn,RegularGridInterpolator
 from numpy import cos, sin, pi
 from tvtk.api import tvtk
 from mayavi.scripts import mayavi2
-
 
 class model_2d(object):
     #from dyn_to_seis.dyn_to_seis import model_1d,model_3d
@@ -31,7 +30,7 @@ class model_2d(object):
         self.T_array = np.zeros((1,1))
         self.f_array = np.zeros((1,1))
 
-    def read_2d(self,path_to_file,fmt='pvk',**kwargs):
+    def read(self,path_to_file,fmt='pvk',**kwargs):
         '''
         reads in temperature and composition data from a cylindrical geodynamic model
 
@@ -221,17 +220,47 @@ class model_2d(object):
         self.dvs = np.ravel(self.dvs_array) 
         self.drho = np.ravel(self.drho_array) 
 
-    def twoD_to_threeD(self,dz,dlat,dlon,var='dvs'):
-        #first interpolate 2D grid to new grid (if a different resolution is required)
-        npts_rad   = abs(int(np.max(self.depth_axis)-np.min(self.depth_axis))/dz)
-        npts_theta = abs(int(np.max(self.theta_axis)-np.min(self.theta_axis))/dlat)+1
-        npts_phi = int(360.0/dlon)+1
-        print npts_rad, npts_theta,npts_phi
+    def twoD_to_threeD(self,npts_z,npts_lat,npts_lon,var='dvs',**kwargs):
+        '''
+        extrapolates 2d half-circle into 3D earth.
 
-        field = imresize(self.dvs_array,(npts_rad,npts_theta))
-        print 'shape of field', field.shape
-        mod_3d = model_3d(drad=dz,latmin=-90,latmax=90+dlat,dlat=dlat,
-                                    lonmin=0,lonmax=360+dlon,dlon=dlon)
+        args:
+            npts_z: desired number of depth points in 3D model
+            npts_lat: desired number of lat points in 3D model
+            npts_lon: desired number of lon points in 3D model
+            var: variable to extrapolate to 3D.
+
+        **kwargs:
+            z_mantle: mantle thickness in km (default 2885)
+
+        returns:
+           An instance of the model_3d class
+        '''
+        z_mantle = kwargs.get('z_mantle',2885.0)
+        if var=='dvs':
+           vals = self.dvs_array
+        elif var=='dvp':
+           vals = self.dvp_array
+
+        dz = z_mantle/npts_z
+        dlat = 180.0/npts_lat
+        dlon = 360.0/npts_lon
+
+        #first interpolate 2D grid to new grid (if a different resolution is required)
+        grid_interp = RegularGridInterpolator((self.depth_axis,self.theta_axis),
+                                              vals, bounds_error=False)
+
+        x_i = np.arange(0,z_mantle+dz,dz)
+        y_i = np.arange(0,180+dlat,dlat)
+        xx,yy = np.meshgrid(x_i,y_i,indexing='ij')
+        field = grid_interp((xx,yy))
+        print 'shape of interpolated field = ',field.shape
+
+        mod_3d = model_3d(radmin=(6371-z_mantle),radmax=6371.0,npts_rad=npts_z,
+                          latmin=-90.0,latmax=90.0,npts_lat=npts_lat,
+                          lonmin=0.0,lonmax=360.0,npts_lon=npts_lon)
+
+        print 'shape of 3d model data ', mod_3d.data.shape
         for i in range(0,len(mod_3d.lon)-1):
             mod_3d.data[:,:,i] = field
 
@@ -333,10 +362,10 @@ class model_3d(object):
    region: select preset region
    '''
 
-   def __init__(self,radmin=3494.0,radmax=6371.0,
+   def __init__(self,npts_rad,npts_lat,npts_lon,
+                radmin=3494.0,radmax=6371.0,
                 latmin=-10.0,latmax=10.0,
-                lonmin= -10.0,lonmax=10.0,
-                drad = 20.0,dlat = 1.0,dlon = 1.0,**kwargs):
+                lonmin= -10.0,lonmax=10.0,**kwargs):
 
       #check if using a preset region--------------------------------------------
       region = kwargs.get('region','None')
@@ -348,23 +377,16 @@ class model_3d(object):
          radmin=5000   
    
       #define model range--------------------------------------------------------
-      nlat        = int((latmax-latmin)/dlat)+1
-      nlon        = int((lonmax-lonmin)/dlon)+1
-      nrad        = int((radmax-radmin)/drad)+1
-      self.lon    = np.linspace(lonmin,lonmax,nlon)
-      self.rad    = np.linspace(radmin,radmax,nrad)
-      self.lat    = np.linspace(latmin,latmax,nlat)
+      drad        = (radmax-radmin)/npts_rad
+      dlat        = (latmax-latmin)/npts_lat
+      dlon        = (lonmax-lonmin)/npts_lon
+      self.rad    = np.arange(radmin,radmax+drad,drad)
+      self.lon    = np.arange(lonmin,lonmax+dlon,dlon)
+      self.lat    = np.arange(latmin,latmax+dlat,dlat)
       self.colat  = 90.0 - self.lat
 
-      #knots---------------------------------------------------------------------
-      #self.lat, self.lon and self.rad are defined as the grid points, and the
-      #values are given inside the cells which they bound.  Hence, each axis has
-      #one more grid point than cell value. Knots are the cell center points, so
-      #there are the same number of knots as data points
-
-      #3d field: data = cell data, data_pts = point data
-      self.data = np.zeros((len(self.rad)-1,len(self.colat)-1,len(self.lon)-1))
-      self.data_pts = np.zeros((len(self.rad),len(self.colat),len(self.lon)))
+      #data is given on grid points defined by self.lat, self.lon and self.rad
+      self.data = np.zeros((len(self.rad),len(self.colat),len(self.lon)))
       self.dlat = dlat
       self.dlon = dlon
       self.drad = drad
@@ -398,13 +420,9 @@ class model_3d(object):
                   lon_new = pt[1]
                   if lon_new < 0:
                       lon_new += 360.0
-                  #print lat_new,lon_new
-                  #print self.probe_data(self.rad[i],lat_new,lon_new,type='cell')
-                  val_here = self.probe_data(self.rad[i],lat_new,lon_new,type='cell')
-                  #non_rotated_val = self.probe_data(self.rad[i],90-self.colat[j],self.lat[k],type='cell')
-                  #print val_here,non_rotated_val
+
+                  val_here = self.probe_data(self.rad[i],lat_new,lon_new)
                   new_data[i,j,k] = val_here
-                  #print 90-self.colat[j],self.lon[k],lat_new,lon_new,val_here
 
       self.data = new_data 
       
@@ -421,6 +439,7 @@ class model_3d(object):
               plot_quakes: Draw earthquakes in earthquake_list (default False)
               earthquake_list: a list of earthquake coordinates specified by 
                                (lat,lon,depth)
+
       '''
       import mayavi
       from mayavi import mlab
@@ -437,18 +456,19 @@ class model_3d(object):
       draw_quakes = kwargs.get('draw_quakes',False)
       earthquake_list = kwargs.get('earthquake_list','none')
 
-      #build the spherical section
-      dims = (len(self.rad)-1,len(self.lon)-1,len(self.colat)-1)
+      dims = (len(self.rad),len(self.lon),len(self.colat))
       pts = generate(phi=np.radians(self.lon),theta=np.radians(self.colat),rad=self.rad)
       sgrid = tvtk.StructuredGrid(dimensions=dims)
       sgrid.points = pts
       s = np.zeros(len(pts))
 
-      #map data onto the grid
+      #Map data onto the grid
+      print 'Patience... mapping data to structured grid'
+
       count = 0
-      for i in range(0,len(self.colat)-1):
-         for j in range(0,len(self.lon)-1):
-            for k in range(0,len(self.rad)-1):
+      for i in range(0,len(self.colat)):
+         for j in range(0,len(self.lon)):
+            for k in range(0,len(self.rad)):
             
                s[count] = self.data[k,i,j]
                sgrid.point_data.scalars = s
@@ -568,28 +588,15 @@ class model_3d(object):
 
    def probe_data(self,rad,lat,lon,**kwargs):
       '''
-       returns the value of the field at the point specified. 
+      returns the value of the field at the point specified. 
    
-       params:
-       lat
-       lon
-       depth
+      params:
+      lat
+      lon
+      depth
       '''
-      type = kwargs.get('type','point')
-      if type == 'cell':
-         p1    = self.rad[0:len(self.rad)-1]
-         p2    = self.lat[0:len(self.lat)-1]
-         p3    = self.lon[0:len(self.lon)-1]
-      
-         return interpn(points = (p1,p2,p3),
+      return interpn(points = (self.rad,self.lat,self.lon),
                         values = self.data,
-                        xi = (rad,lat,lon),
-                        bounds_error=False,
-                        fill_value = 0.0)
-
-      elif type == 'point':
-         return interpn(points=(self.rad,self.lat,self.lon),
-                        values=self.data_pts,
                         xi = (rad,lat,lon),
                         bounds_error=False,
                         fill_value = 0.0)
@@ -618,7 +625,7 @@ class model_3d(object):
                lon = self.lon[j]
                for k in range(0,len(self.lat)):
                    lat = self.lat[k]
-                   dv = self.data_pts[(len(self.rad)-(i+1)),j,k]
+                   dv = self.data[(len(self.rad)-(i+1)),j,k]
                    f.write('{} {} {} {} {}'.format(lon,lat,depth,dv,prem_vs)+'\n')
 
    def write_specfem_heterogen(self,**kwargs):
@@ -630,7 +637,7 @@ class model_3d(object):
        for i in range(0,len(self.rad)):
            for j in range(0,len(self.lat)):
                for k in range(0,len(self.lon)):
-                   f.write('{}'.format(self.data_pts[i,j,k])+'\n')
+                   f.write('{}'.format(self.data[i,j,k])+'\n')
 
 def write_specfem_ppm(dvs_model3d,dvp_model3d,drho_model3d,**kwargs):
     '''
@@ -647,9 +654,9 @@ def write_specfem_ppm(dvs_model3d,dvp_model3d,drho_model3d,**kwargs):
           lon = dvs_model3d.lon[j]
           for k in range(0,len(dvs_model3d.lat)):
              lat = dvs_model3d.lat[k]
-             dvs = dvs_model3d.data_pts[(len(dvs_model3d.rad)-(i+1)),j,k]
-             dvp = dvp_model3d.data_pts[(len(dvp_model3d.rad)-(i+1)),j,k]
-             drho = drho_model3d.data_pts[(len(drho_model3d.rad)-(i+1)),j,k]
+             dvs = dvs_model3d.data[(len(dvs_model3d.rad)-(i+1)),j,k]
+             dvp = dvp_model3d.data[(len(dvp_model3d.rad)-(i+1)),j,k]
+             drho = drho_model3d.data[(len(drho_model3d.rad)-(i+1)),j,k]
              f.write('{} {} {} {} {} {}'.format(lon,lat,depth,dvs,dvp,drho)+'\n')
 
 def write_s40_filter_inputs(model_3d,**kwargs):
@@ -1205,9 +1212,9 @@ def generate(phi=None, theta=None, rad=None):
     print 'theta',theta
     print 'phi',phi
 
-    for i in range(0,len(theta)-1):
-       for j in range(0,len(phi)-1):
-          for k in range(0,len(rad)-1):
+    for i in range(0,len(theta)):
+       for j in range(0,len(phi)):
+          for k in range(0,len(rad)):
              x = rad[k]*cos(phi[j])*sin(theta[i])
              y = rad[k]*sin(phi[j])*sin(theta[i])
              z = rad[k]*cos(theta[i])
