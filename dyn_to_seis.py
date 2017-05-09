@@ -426,6 +426,9 @@ class model_3d(object):
       s2 = [6371, 90-lat, lon]
       rotation_angle = find_rotation_angle(s1,s2)
       new_data = np.zeros(self.data.shape)
+
+      R=rotation_matrix(n,phi)
+
       print new_data.shape
       for i in range(0,len(self.rad)-1):
           for j in range(0,len(self.colat)-1):
