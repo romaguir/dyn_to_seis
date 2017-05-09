@@ -8,6 +8,57 @@ from numpy import cos, sin, pi
 from tvtk.api import tvtk
 from mayavi.scripts import mayavi2
 
+def rotation_matrix(n,phi):
+
+  """ compute rotation matrix
+  input: rotation angle phi [deg] and rotation vector n normalised to 1
+  return: rotation matrix
+  """
+
+  phi=np.pi*phi/180.0
+
+  A=np.array([ (n[0]*n[0],n[0]*n[1],n[0]*n[2]), (n[1]*n[0],n[1]*n[1],n[1]*n[2]), (n[2]*n[0],n[2]*n[1],n[2]*n[2])])
+  B=np.eye(3)
+  C=np.array([ (0.0,-n[2],n[1]), (n[2],0.0,-n[0]), (-n[1],n[0],0.0)])
+
+  R=(1.0-np.cos(phi))*A+np.cos(phi)*B+np.sin(phi)*C
+
+  return np.matrix(R)
+
+def rotate_coordinates(n,phi,colat,lon):
+
+  """ rotate colat and lon
+  input: rotation angle phi [deg] and rotation vector n normalised to 1, original colatitude and longitude [deg]
+  return: colat_new [deg], lon_new [deg]
+  """
+
+  # convert to radians
+
+  colat=np.pi*colat/180.0
+  lon=np.pi*lon/180.0
+
+  # rotation matrix
+
+  R=rotation_matrix(n,phi)
+
+  # original position vector
+
+  #x=np.matrix([[np.cos(lon)*np.sin(colat)], [np.sin(lon)*np.sin(colat)], [np.cos(colat)]])
+  x=np.array([[np.cos(lon)*np.sin(colat)], [np.sin(lon)*np.sin(colat)], [np.cos(colat)]])
+
+  # rotated position vector
+
+  #y=R*x
+  y=R.dot(x)
+
+  # compute rotated colatitude and longitude
+
+  colat_new=np.arccos(y[2])
+  lon_new=np.arctan2(y[1],y[0])
+
+  return float(180.0*colat_new/np.pi), float(180.0*lon_new/np.pi)
+
+
 class model_2d(object):
     #from dyn_to_seis.dyn_to_seis import model_1d,model_3d
     #from dyn_to_seis.dyn_to_seis import find_rotation_angle
@@ -250,8 +301,12 @@ class model_2d(object):
         grid_interp = RegularGridInterpolator((self.depth_axis,self.theta_axis),
                                               vals, bounds_error=False)
 
-        x_i = np.arange(0,z_mantle+dz,dz)
-        y_i = np.arange(0,180+dlat,dlat)
+        #x_i = np.arange(0,z_mantle+dz,dz)
+        #y_i = np.arange(0,180+dlat,dlat)
+        #RM 5-9-17
+        x_i = np.linspace(0,z_mantle,npts_z)
+        y_i = np.linspace(0,180.0,npts_lat)
+
         xx,yy = np.meshgrid(x_i,y_i,indexing='ij')
         field = grid_interp((xx,yy))
         print 'shape of interpolated field = ',field.shape
@@ -398,9 +453,12 @@ class model_3d(object):
       drad        = (radmax-radmin)/npts_rad
       dlat        = (latmax-latmin)/npts_lat
       dlon        = (lonmax-lonmin)/npts_lon
-      self.rad    = np.arange(radmin,radmax+drad,drad)
-      self.lon    = np.arange(lonmin,lonmax+dlon,dlon)
-      self.lat    = np.arange(latmin,latmax+dlat,dlat)
+      #self.rad    = np.arange(radmin,radmax+drad,drad)
+      #self.lon    = np.arange(lonmin,lonmax+dlon,dlon)
+      #self.lat    = np.arange(latmin,latmax+dlat,dlat)
+      self.rad    = np.linspace(radmin,radmax,npts_rad)
+      self.lon    = np.linspace(lonmin,lonmax,npts_lon)
+      self.lat    = np.linspace(latmin,latmax,npts_lat)
       self.colat  = 90.0 - self.lat
 
       #data is given on grid points defined by self.lat, self.lon and self.rad
@@ -420,32 +478,63 @@ class model_3d(object):
       lat = destination[0]
       lon = destination[1]
       s1 = [6371, 180, 0]
+      #s1 = [6371, 0, 0]
       s2 = [6371, 90-lat, lon]
       rotation_vector = find_rotation_vector(s1,s2)
       s1 = [6371, 180, 0]
+      #s1 = [6371, 0, 0]
       s2 = [6371, 90-lat, lon]
       rotation_angle = find_rotation_angle(s1,s2)
-      new_data = np.zeros(self.data.shape)
+      pts_new = []
+      #new_data = np.zeros(self.data.shape)
 
-      R=rotation_matrix(n,phi)
+      R=rotation_matrix(n=rotation_vector,phi=rotation_angle)
+      interp =  RegularGridInterpolator(points = (self.rad,self.lat,self.lon),
+                        values = self.data,bounds_error=False,fill_value = 0.0)
 
-      print new_data.shape
-      for i in range(0,len(self.rad)-1):
-          for j in range(0,len(self.colat)-1):
-              for k in range(0,len(self.lon)-1):
+      #print new_data.shape
+      print 'calculating rotated points...'
+      colat_rad = np.rad2deg(self.colat)
+      lon_rad = np.rad2deg(self.lon)
+      #for i in range(0,len(self.rad)-1):
+      for i in range(0,len(self.rad)):
+          #for j in range(0,len(self.colat)-1):
+          for j in range(0,len(colat_rad)):
+              #for k in range(0,len(self.lon)-1):
+              for k in range(0,len(lon_rad)):
                   pt = rotate_coordinates(n=rotation_vector,
                                           phi=rotation_angle,
                                           colat=self.colat[j],
                                           lon=self.lon[k])
+
                   lat_new = 90-pt[0]
                   lon_new = pt[1]
                   if lon_new < 0:
                       lon_new += 360.0
+                
+                  '''
+                  x = np.array([[np.cos(lon_rad[i])*np.sin(colat_rad[j])], 
+                                [np.sin(lon_rad[i])],[np.cos(colat_rad[j])]])
+                  y = R.dot(x)
+                  colat_new = np.arccos(y[2])
+                  colat_new = np.rad2deg(colat_new)
+                  lon_new = np.arctan(y[1],y[0])
+                  lon_new = np.rad2deg(lon_new)
+                  pts_new.append([self.rad[i],90-colat_new,lon_new])
+                  '''
 
-                  val_here = self.probe_data(self.rad[i],lat_new,lon_new)
-                  new_data[i,j,k] = val_here
+                  pts_new.append([self.rad[i],lat_new,lon_new])
 
-      self.data = new_data 
+                  #val_here = self.probe_data(self.rad[i],lat_new,lon_new)
+                  #val_here = interp([self.rad[i],lat_new,lon_new])
+                  #new_data[i,j,k] = val_here
+
+      print 'done calculating rotated points!'
+      print 'starting interpolation for', len(pts_new), 'points...'
+      data_new = interp(pts_new)
+      print 'interpolation finished!'
+      data_new = data_new.reshape(self.data.shape,order='C')
+      self.data = data_new
       
 
    def plot_3d(self,**kwargs):
@@ -1158,54 +1247,6 @@ def km_per_deg_lon(latitude):
    latitude = np.radians(latitude)
    km_per_deg = (2*np.pi*6371.0*np.cos(latitude))/360.0
    return km_per_deg
-
-def rotate_coordinates(n,phi,colat,lon):
-
-  """ rotate colat and lon
-  input: rotation angle phi [deg] and rotation vector n normalised to 1, original colatitude and longitude [deg]
-  return: colat_new [deg], lon_new [deg]
-  """
-
-  # convert to radians
-
-  colat=np.pi*colat/180.0
-  lon=np.pi*lon/180.0
-
-  # rotation matrix
-
-  R=rotation_matrix(n,phi)
-
-  # original position vector
-
-  x=np.matrix([[np.cos(lon)*np.sin(colat)], [np.sin(lon)*np.sin(colat)], [np.cos(colat)]])
-
-  # rotated position vector
-
-  y=R*x
-
-  # compute rotated colatitude and longitude
-
-  colat_new=np.arccos(y[2])
-  lon_new=np.arctan2(y[1],y[0])
-
-  return float(180.0*colat_new/np.pi), float(180.0*lon_new/np.pi)
-
-def rotation_matrix(n,phi):
-
-  """ compute rotation matrix
-  input: rotation angle phi [deg] and rotation vector n normalised to 1
-  return: rotation matrix
-  """
-
-  phi=np.pi*phi/180.0
-
-  A=np.array([ (n[0]*n[0],n[0]*n[1],n[0]*n[2]), (n[1]*n[0],n[1]*n[1],n[1]*n[2]), (n[2]*n[0],n[2]*n[1],n[2]*n[2])])
-  B=np.eye(3)
-  C=np.array([ (0.0,-n[2],n[1]), (n[2],0.0,-n[0]), (-n[1],n[0],0.0)])
-
-  R=(1.0-np.cos(phi))*A+np.cos(phi)*B+np.sin(phi)*C
-
-  return np.matrix(R)
 
 def generate(phi=None, theta=None, rad=None):
     # Default values for the spherical section
