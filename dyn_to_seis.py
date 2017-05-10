@@ -478,28 +478,25 @@ class model_3d(object):
       lat = destination[0]
       lon = destination[1]
       s1 = [6371, 180, 0]
-      s1 = [6371, 0, 0]
       s2 = [6371, 90-lat, lon]
       rotation_vector = find_rotation_vector(s1,s2)
-      s1 = [6371, 180, 0]
+      s1 = [6371, 0, 0]
       s2 = [6371, 90-lat, lon]
       rotation_angle = find_rotation_angle(s1,s2)
-      pts_new = []
-      print rotation_vector
-      print rotation_angle
+      #note that s1 is defined to be either at the south pole when finding
+      #the rotation vector and the north pole when finding the angle...
+      #this has to do with how the cross product is defined in find_rotation_vector
 
+      pts_new = []
       R=rotation_matrix(n=rotation_vector,phi=rotation_angle)
       interp =  RegularGridInterpolator(points = (self.rad,self.lat,self.lon),
                         values = self.data,bounds_error=False,fill_value = 0.0)
 
-      print 'calculating rotated points...'
+      print 'patience... rotation and interpolation may take a couple minutes for large models'
       colat_rad = np.rad2deg(self.colat)
       lon_rad = np.rad2deg(self.lon)
-      #for i in range(0,len(self.rad)-1):
       for i in range(0,len(self.rad)):
-          #for j in range(0,len(self.colat)-1):
           for j in range(0,len(self.colat)):
-              #for k in range(0,len(self.lon)-1):
               for k in range(0,len(self.lon)):
                   pt = rotate_coordinates(n=rotation_vector,
                                           phi=rotation_angle,
@@ -513,10 +510,7 @@ class model_3d(object):
 
                   pts_new.append([self.rad[i],lat_new,lon_new])
 
-      print 'done calculating rotated points!'
-      print 'starting interpolation for', len(pts_new), 'points...'
       data_new = interp(pts_new)
-      print 'interpolation finished!'
       data_new = data_new.reshape(self.data.shape,order='C')
       self.data = data_new
       
