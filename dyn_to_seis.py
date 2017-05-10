@@ -470,7 +470,7 @@ class model_3d(object):
    def rotate_3d(self,destination):
       '''
       solid body rotation of the mantle with respect to the surface.
-      rotates the south pole to the specfied destination.
+      rotates the north pole to the specfied destination.
 
       args:
           destination: (lat,lon)
@@ -478,30 +478,29 @@ class model_3d(object):
       lat = destination[0]
       lon = destination[1]
       s1 = [6371, 180, 0]
-      #s1 = [6371, 0, 0]
+      s1 = [6371, 0, 0]
       s2 = [6371, 90-lat, lon]
       rotation_vector = find_rotation_vector(s1,s2)
       s1 = [6371, 180, 0]
-      #s1 = [6371, 0, 0]
       s2 = [6371, 90-lat, lon]
       rotation_angle = find_rotation_angle(s1,s2)
       pts_new = []
-      #new_data = np.zeros(self.data.shape)
+      print rotation_vector
+      print rotation_angle
 
       R=rotation_matrix(n=rotation_vector,phi=rotation_angle)
       interp =  RegularGridInterpolator(points = (self.rad,self.lat,self.lon),
                         values = self.data,bounds_error=False,fill_value = 0.0)
 
-      #print new_data.shape
       print 'calculating rotated points...'
       colat_rad = np.rad2deg(self.colat)
       lon_rad = np.rad2deg(self.lon)
       #for i in range(0,len(self.rad)-1):
       for i in range(0,len(self.rad)):
           #for j in range(0,len(self.colat)-1):
-          for j in range(0,len(colat_rad)):
+          for j in range(0,len(self.colat)):
               #for k in range(0,len(self.lon)-1):
-              for k in range(0,len(lon_rad)):
+              for k in range(0,len(self.lon)):
                   pt = rotate_coordinates(n=rotation_vector,
                                           phi=rotation_angle,
                                           colat=self.colat[j],
@@ -511,23 +510,8 @@ class model_3d(object):
                   lon_new = pt[1]
                   if lon_new < 0:
                       lon_new += 360.0
-                
-                  '''
-                  x = np.array([[np.cos(lon_rad[i])*np.sin(colat_rad[j])], 
-                                [np.sin(lon_rad[i])],[np.cos(colat_rad[j])]])
-                  y = R.dot(x)
-                  colat_new = np.arccos(y[2])
-                  colat_new = np.rad2deg(colat_new)
-                  lon_new = np.arctan(y[1],y[0])
-                  lon_new = np.rad2deg(lon_new)
-                  pts_new.append([self.rad[i],90-colat_new,lon_new])
-                  '''
 
                   pts_new.append([self.rad[i],lat_new,lon_new])
-
-                  #val_here = self.probe_data(self.rad[i],lat_new,lon_new)
-                  #val_here = interp([self.rad[i],lat_new,lon_new])
-                  #new_data[i,j,k] = val_here
 
       print 'done calculating rotated points!'
       print 'starting interpolation for', len(pts_new), 'points...'
