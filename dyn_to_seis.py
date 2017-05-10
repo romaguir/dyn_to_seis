@@ -450,6 +450,9 @@ class model_3d(object):
          radmin=5000   
    
       #define model range--------------------------------------------------------
+      self.npts_rad = npts_rad
+      self.npts_lat = npts_lat
+      self.npts_lon = npts_lon
       drad        = (radmax-radmin)/npts_rad
       dlat        = (latmax-latmin)/npts_lat
       dlon        = (lonmax-lonmin)/npts_lon
@@ -749,16 +752,16 @@ def write_specfem_ppm(dvs_model3d,dvp_model3d,drho_model3d,**kwargs):
 
 def write_s40_filter_inputs(model_3d,**kwargs):
    '''
-   takes in a 3d model and writes out the input files for the S40RTS tomographic filter.
+   Takes in a 3d model and writes out the input files for the S40RTS tomographic filter.
+   The data in the 3d model is given as point data, while this writes out data for 
+   layers.  Therefore, the total number of layers is one less than the number of 
+   radial grid points.  The value in each layer is taken as the average of the 
+   closest two radial values.
    
    params:
    model_3d: instance of the model_3d class
 
    kwargs:
-   n_layers: number of layers (i.e, spherical shells).
-             one file will be written per layer
-   lat_spacing : spacing in latitude
-   lon_spacing : spacing in longitude
    model_name : model_name (string)
    save_dir : save directory (string)
 
@@ -774,51 +777,44 @@ def write_s40_filter_inputs(model_3d,**kwargs):
    lat, lon, val
    ------------------------------------------------------------------------------
    '''
-   n_layers    = kwargs.get('n_layers',64)
-   lat_spacing = kwargs.get('lat_spacing',1.0)
-   lon_spacing = kwargs.get('lon_spacing',1.0)
    model_name  = kwargs.get('model_name','none')
    save_dir    = kwargs.get('save_dir','./')
    type = kwargs.get('type','point')
 
    #initializations
-   lat = np.arange(-90,90,lat_spacing)
-   lon = np.arange(0,360.0,lon_spacing)
-   depth =  np.linspace(0,2885,n_layers)
+   lat = model_3d.lat
+   lon = model_3d.lon
+   depth = 6371.0 - model_3d.rad
    lon_min = min(model_3d.lon)
    lon_max = max(model_3d.lon)
    lat_min = min(model_3d.lat)
    lat_max = max(model_3d.lat)
+
+   #check for nans
+   model_3d.data = np.nan_to_num(model_3d.data)
     
 
-   for i in range(0,len(depth)-1):
+   #for i in range(0,len(depth)-1):
+   for i in range(len(depth)-1,0,-1): #loop backwards (start at surface instead of core)
+      count = len(depth) - i
       r1 = 6371.0 - depth[i]
-      r2 = 6371.0 - depth[i+1]
-      r_here = (r1+r2)/2.0
+      r2 = 6371.0 - depth[i-1]
 
       #open file and write header
       out_name = str(model_name)+'.'+str(i)+'.dat' 
       output   = open(save_dir+'/'+out_name,'w')
-      output.write(str(6371.0-r1)+'\n')
-      output.write(str(6371.0-r2)+'\n')
 
-      for j in range(0,len(lon)):
-         for k in range(0,len(lat)):
+      output.write('{}'.format(6371.0-model_3d.rad[count])+'\n')
+      output.write('{}'.format(6371.0-model_3d.rad[count-1])+'\n')
+
+      for j in range(0,len(lat)-1):
+         for k in range(0,len(lon)-1):
              
-            if (lon[j] >= lon_min and lon[j] <= lon_max and
-                lat[k] >= lat_min and lat[k] <= lat_max):
+            v1 = model_3d.data[i,j,k]
+            v2 = model_3d.data[i-1,j,k]
+            value = (v1+v2)/2.0
 
-               if type == 'point':
-                  value = model_3d.probe_data(r_here,lat[k],lon[j],type='point')
-                  value = value[0]
-               elif type == 'cell':
-                  value = model_3d.probe_data(r_here,lat[k],lon[j],type='cell')
-                  value = value[0]
-
-            else:
-               value = 0.0
-
-            line = '{} {} {}'.format(lat[k],lon[j],value)
+            line = '{} {} {}'.format(lat[j],lon[k],value)
             output.write(line+'\n')
 
 def rad_to_pressure(radius,rho):
