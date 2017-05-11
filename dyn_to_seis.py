@@ -309,6 +309,7 @@ class model_2d(object):
 
         xx,yy = np.meshgrid(x_i,y_i,indexing='ij')
         field = grid_interp((xx,yy))
+        field = np.fliplr(field) #RM 5-11-17 (trying to get north pole not to flip to south pole)
         print 'shape of interpolated field = ',field.shape
 
         mod_3d = model_3d(radmin=(6371-z_mantle),radmax=6371.0,npts_rad=npts_z,
