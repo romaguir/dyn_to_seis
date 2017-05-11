@@ -301,15 +301,12 @@ class model_2d(object):
         grid_interp = RegularGridInterpolator((self.depth_axis,self.theta_axis),
                                               vals, bounds_error=False)
 
-        #x_i = np.arange(0,z_mantle+dz,dz)
-        #y_i = np.arange(0,180+dlat,dlat)
-        #RM 5-9-17
         x_i = np.linspace(0,z_mantle,npts_z)
         y_i = np.linspace(0,180.0,npts_lat)
 
         xx,yy = np.meshgrid(x_i,y_i,indexing='ij')
         field = grid_interp((xx,yy))
-        field = np.fliplr(field) #RM 5-11-17 (trying to get north pole not to flip to south pole)
+        field = np.fliplr(field)
         print 'shape of interpolated field = ',field.shape
 
         mod_3d = model_3d(radmin=(6371-z_mantle),radmax=6371.0,npts_rad=npts_z,
