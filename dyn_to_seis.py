@@ -793,25 +793,23 @@ def write_s40_filter_inputs(model_3d,**kwargs):
    #check for nans
    model_3d.data = np.nan_to_num(model_3d.data)
     
-
-   #for i in range(0,len(depth)-1):
-   for i in range(len(depth)-1,0,-1): #loop backwards (start at surface instead of core)
-      count = len(depth) - i
-      r1 = 6371.0 - depth[i]
-      r2 = 6371.0 - depth[i-1]
+   for i in range(0,len(depth)-1):
+      count = len(depth) - i - 1
 
       #open file and write header
-      out_name = str(model_name)+'.'+str(i)+'.dat' 
+      out_name = str(model_name)+'.'+str(count)+'.dat' 
       output   = open(save_dir+'/'+out_name,'w')
 
-      output.write('{}'.format(6371.0-model_3d.rad[count])+'\n')
-      output.write('{}'.format(6371.0-model_3d.rad[count-1])+'\n')
+      output.write('{}'.format(6371.0-model_3d.rad[i+1])+'\n')
+      output.write('{}'.format(6371.0-model_3d.rad[i])+'\n')
 
       for j in range(0,len(lat)-1):
          for k in range(0,len(lon)-1):
              
+            #v1 = model_3d.data[i,j,k]
+            #v2 = model_3d.data[i-1,j,k]
             v1 = model_3d.data[i,j,k]
-            v2 = model_3d.data[i-1,j,k]
+            v2 = model_3d.data[i+1,j,k]
             value = (v1+v2)/2.0
 
             line = '{} {} {}'.format(lat[j],lon[k],value)
