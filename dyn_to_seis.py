@@ -1,3 +1,4 @@
+import os
 import h5py
 import pickle
 import numpy as np
@@ -777,6 +778,10 @@ def write_s40_filter_inputs(model_3d,**kwargs):
    '''
    model_name  = kwargs.get('model_name','none')
    save_dir    = kwargs.get('save_dir','./')
+
+   if os.path.exists(save_dir) == False:
+      os.makedirs(save_dir)
+
    type = kwargs.get('type','point')
 
    #initializations
