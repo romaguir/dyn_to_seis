@@ -1,13 +1,15 @@
 import os
 import h5py
+import glob
 import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.misc import imresize
-from scipy.interpolate import interp1d, interp2d,interpn,RegularGridInterpolator
+from scipy.interpolate import interp1d, interp2d,interpn,RegularGridInterpolator,griddata
 from numpy import cos, sin, pi
 from tvtk.api import tvtk
 from mayavi.scripts import mayavi2
+from seis_tools.models import geometry
 
 def rotation_matrix(n,phi):
 
@@ -59,6 +61,131 @@ def rotate_coordinates(n,phi,colat,lon):
 
   return float(180.0*colat_new/np.pi), float(180.0*lon_new/np.pi)
 
+class model_1d(object):
+
+    def __init__(self,depthmin=0.0,depthmax=2891.0,ddepth=1.0,f=0.18):
+        self.depth = np.arange(depthmin,depthmax+ddepth,ddepth)
+        self.T = np.zeros(len(self.depth))
+        self.f = np.zeros(len(self.depth))
+        self.npts_depth = len(self.depth)
+        self.vp = np.zeros(len(self.depth))
+        self.vs = np.zeros(len(self.depth))
+        self.rho = np.zeros(len(self.depth))
+        self.rho_rel = np.zeros(len(self.depth))
+        self.dvo_rel = np.zeros(len(self.depth))
+        self.dvo_rel = np.zeros(len(self.depth))
+        self.rho_abs = np.zeros(len(self.depth))
+        self.dvo_abs = np.zeros(len(self.depth))
+        self.dvo_abs = np.zeros(len(self.depth))
+        self.drho = np.zeros(len(self.depth))
+        self.ddepth = ddepth
+        self.depthmin = depthmin
+        self.depthmax = depthmax
+
+        #get 1d pressure profile from PREM
+        prem1d = prem()
+        self.P = prem1d.get_p(self.depth)
+        self.P /= 1e5 #convert to bar?
+
+        #by default, use pyrolite composition
+        self.f[:] = 0.18
+
+    def read_adiabat(self,adiabat_file):
+        adiabat = np.loadtxt(adiabat_file)
+        T_adiabat = adiabat[:,0]
+        P_adiabat = adiabat[:,1]
+        interp_T = interp1d(P_adiabat,T_adiabat,fill_value='extrapolate')
+        T_int = interp_T(self.P)
+        self.T = T_int[:]
+
+    def change_temp(self,dep1,dep2,delta_T):
+        '''
+        args-
+        dep1: depth at the top of the layer
+        dep2: depth at the bottom of the layer
+        delta_T: temperature perturbation within the layer
+        '''
+        i_1 = int(dep1 / self.ddepth) + int(self.depthmin/self.ddepth)
+        i_2 = int(dep2 / self.ddepth) + int(self.depthmin/self.ddepth)
+        self.T[i_1:i_2] += delta_T
+
+    def change_comp(self,dep1,dep2,f):
+        '''
+        args-
+        dep1: depth at the top of the layer
+        dep2: depth at the bottom of the layer
+        f: basalt fraction of the layer
+        '''
+        i_1 = int(dep1 / self.ddepth) + int(self.depthmin/self.ddepth)
+        i_2 = int(dep2 / self.ddepth) + int(self.depthmin/self.ddepth)
+        self.f[i_1:i_2] = f
+
+    def velocity_conversion(self,composition,lookup_tables='~/utils/lookup_tables/lookup_tables.hdf5'):
+        '''
+        performs the velocity conversion.
+        args:
+
+           lookup_tables: str
+                          path to h5py lookup tables
+           composition: str
+                        one of either 'pyrolite', 'harzburgite', morb', or, 'mixture'
+                        'mixture' uses a mechanical mixture of morb and harzburgite
+        '''
+
+        tables = h5py.File(lookup_tables,'r')
+        #read harzburgite lookuptable
+        harz_vp_table = tables['harzburgite']['vp'][:]
+        harz_vs_table = tables['harzburgite']['vs'][:]
+        harz_rho_table = tables['harzburgite']['rho'][:]
+        #read morb lookuptable
+        morb_vp_table = tables['morb']['vp'][:]
+        morb_vs_table = tables['morb']['vs'][:]
+        morb_rho_table = tables['morb']['rho'][:]
+        #read topology
+        P0 = tables['pyrolite']['P0'].value
+        T0 = tables['pyrolite']['T0'].value
+        nP = tables['pyrolite']['nP'].value
+        nT = tables['pyrolite']['nT'].value
+        dP = tables['pyrolite']['dP'].value
+        dT = tables['pyrolite']['dT'].value
+        P_table_axis = np.arange(P0,((nP-1)*dP+P0+dP),dP)
+        T_table_axis = np.arange(T0,((nT-1)*dT+T0+dT),dT)
+        #create interpolators
+        harz_vp_interpolator  = interp2d(P_table_axis,T_table_axis, harz_vp_table)
+        harz_vs_interpolator  = interp2d(P_table_axis,T_table_axis, harz_vs_table)
+        harz_rho_interpolator = interp2d(P_table_axis,T_table_axis, harz_rho_table)
+        morb_vp_interpolator  = interp2d(P_table_axis,T_table_axis, morb_vp_table)
+        morb_vs_interpolator  = interp2d(P_table_axis,T_table_axis, morb_vs_table)
+        morb_rho_interpolator = interp2d(P_table_axis,T_table_axis, morb_rho_table)
+
+        for i in range(0,len(self.depth)):
+            P_here = self.P[i]
+            T_here = self.T[i]
+            f_here = self.f[i]
+            vp_harz = harz_vp_interpolator(P_here,T_here)
+            vs_harz = harz_vs_interpolator(P_here,T_here)
+            rho_harz = harz_rho_interpolator(P_here,T_here)
+            vp_morb = morb_vp_interpolator(P_here,T_here)
+            vs_morb = morb_vs_interpolator(P_here,T_here)
+            rho_morb = morb_rho_interpolator(P_here,T_here)
+            self.vp[i] = f_here*vp_morb + (1-f_here)*vp_harz
+            self.vs[i] = f_here*vs_morb + (1-f_here)*vs_harz
+            self.rho[i] = f_here*rho_morb + (1-f_here)*rho_harz
+
+    def plot(self):
+        fig,axes=plt.subplots(1,3,sharey=True)
+        axes[0].plot(self.T,self.depth)
+        axes[0].set_ylim([self.depthmax,self.depthmin])
+        axes[0].set_ylabel('depth (km)')
+        axes[0].set_xlabel('T')
+        axes[1].plot(self.P,self.depth)
+        axes[1].set_ylim([self.depthmax,self.depthmin])
+        axes[1].set_xlabel('P')
+        axes[2].plot(self.f,self.depth)
+        axes[2].set_ylim([self.depthmax,self.depthmin])
+        axes[2].set_xlabel('f (%)')
+        plt.tight_layout()
+        plt.show()
 
 class model_2d(object):
     #from dyn_to_seis.dyn_to_seis import model_1d,model_3d
@@ -81,6 +208,8 @@ class model_2d(object):
         self.depth_axis = np.zeros(1)
         self.T_array = np.zeros((1,1))
         self.f_array = np.zeros((1,1))
+        self.npts_theta = 0
+        self.npts_depth = 0
 
     def read(self,path_to_file,fmt='pvk',**kwargs):
         '''
@@ -104,14 +233,23 @@ class model_2d(object):
              format of the input file. options: only 'pvk' right now
              if 'pvk':
                 x(km), y(km), co-lat(degrees), depth(km), Tpot(C), conc. of basalt tracers
+             if 'plume':
+                x(km), y(km), T (C), dT(C)
 
         kwargs:
 
            bf_scaling: float (optional, default = 8.0)
               value corresponding to 100% basalt concentration in dynamic simulations.
               composition field will be normalized so that 1.0 corresponds to 100% basalt.
+
+           plume_f = float (default = 0.18 (i.e., pyrolite))
+              define a constant composition for the plume (use if fmt='plume')
+
+           debug = if True, writes additional output diagnostics (default = False)
         '''
         bf_scaling = kwargs.get('bf_scaling',8.0)
+        plume_f = kwargs.get('plume_f',0.18)
+        debug = kwargs.get('debug',False)
 
         model = np.loadtxt(path_to_file)
         if fmt=='pvk':
@@ -121,13 +259,27 @@ class model_2d(object):
            depth = model[:,3]
            Tpot = model[:,4]
            f = model[:,5]
+        elif fmt=='plume':
+           x = model[:,0]
+           y = model[:,1]
+           T = model[:,2]
 
         self.x = x
         self.y = y
-        self.theta = theta
-        self.depth = depth
-        self.T = Tpot
-        self.f = f
+
+        if fmt=='pvk':
+           self.T = Tpot
+           self.f = f
+           self.theta = theta
+           self.depth = depth
+        elif fmt=='plume':
+           self.T = T
+           self.f = np.zeros(len(self.T))
+           self.f[:] = plume_f
+           radius, lat_rad = geometry.cart2polar(self.x,self.y)
+           self.depth = 6371.0 - radius
+           self.theta = 90.0 - np.rad2deg(lat_rad)
+
 
         #remove 'outliers' that are over 100% basalt
         for i in range(0,len(self.f)):
@@ -138,14 +290,33 @@ class model_2d(object):
         self.f /= bf_scaling
 
         #reshape scatter data into an array
-        dtheta = np.max((np.diff(self.theta)))
-        ddepth = np.max(np.abs(np.diff(self.depth)))
-        self.dtheta = dtheta
-        self.ddepth = ddepth
-        self.theta_axis = np.arange(np.min(theta),np.max(theta)+dtheta,dtheta)
-        self.depth_axis = np.arange(np.min(depth),np.max(depth)+ddepth,ddepth)
-        npts_theta = len(self.theta_axis)
-        npts_depth = len(self.depth_axis)
+        if fmt=='pvk':
+           dtheta = np.max((np.diff(self.theta)))
+           ddepth = np.max(np.abs(np.diff(self.depth)))
+           self.dtheta = dtheta
+           self.ddepth = ddepth
+           self.theta_axis = np.arange(np.min(self.theta),np.max(self.theta)+dtheta,dtheta)
+           self.depth_axis = np.arange(np.min(self.depth),np.max(self.depth)+ddepth,ddepth)
+           npts_theta = len(self.theta_axis)
+           npts_depth = len(self.depth_axis)
+
+        elif fmt=='plume':
+           npts_theta = 201
+           npts_depth = 288
+           dtheta = 10.0/npts_theta
+           ddepth = 2878.0/npts_depth
+           self.dtheta = dtheta
+           self.ddepth = ddepth
+           self.theta_axis = np.linspace(0,10,npts_theta)
+           self.depth_axis = np.linspace(0,2878,npts_depth)
+
+        self.npts_theta = npts_theta
+        self.npts_depth = npts_depth
+
+        if debug:
+           print ddepth, dtheta
+           print self.T.shape, npts_depth, npts_theta, npts_depth*npts_theta
+
         self.T_array = np.reshape(self.T,(npts_depth,npts_theta))
         self.f_array = np.reshape(self.f,(npts_depth,npts_theta))
 
@@ -174,7 +345,52 @@ class model_2d(object):
            self.T_array += surf_temp
            self.T = np.ravel(self.T_array)
 
-    def velocity_conversion(self,lookup_tables,composition,**kwargs):
+    def potT_to_absT(self,adiabat_dir):
+        p = []
+        pot_T = []
+        abs_T = []
+
+        ads = glob.glob(adiabat_dir+'./*.out')
+
+        for ad in ads:
+            pot_temp_str = ad.split('_')[1].split('K')[0]
+            pot_temp = int(pot_temp_str)
+            f = np.loadtxt(ad)
+            temp = f[:,0]
+            pressure = f[:,1]
+            for i in range(0,len(temp)):
+                p.append(pressure[i])
+                pot_T.append(pot_temp)
+                abs_T.append(temp[i])
+
+        plot = False
+        if plot:
+           plt.scatter(pot_T,p,c=abs_T,cmap='viridis',edgecolor='none')
+           plt.show()
+
+        #first interpolate irregular scatter data onto uniform mesh
+        x_i = np.arange(0,2550,50) #adiabats above 2500 are nonsense
+        #x_i = np.arange(0,1850,50) #adiabats above 2500 are nonsense
+        y_i = np.linspace(0,1350000,1000)
+        z_i = griddata((pot_T,p),abs_T, (x_i[None,:],y_i[:,None]), method='linear')
+
+        #next make an interpolating function
+        rgi = RegularGridInterpolator(points=(x_i,y_i),values=z_i.T,
+                bounds_error=False,fill_value=None)
+        #rgi takes a tuple of (potential temp, pressure) and returns absolute temp
+        #for i in range(0,len(self.T_array.flatten())):
+        #    new_T = rgi((self.T_array.flatten()[i],
+        #                 self.P_array.flatten()[i]))
+        #    self.T_array.flatten[i] = new_T
+
+        for i in range(0,len(self.depth_axis)):
+            for j in range(0,len(self.theta_axis)):
+                if self.T_array[i,j] < 300:
+                    self.T_array[i,j] = 300
+                new_T = rgi((self.T_array[i,j],self.P[::-1][i]))
+                self.T_array[i,j] = new_T
+
+    def velocity_conversion(self,composition,lookup_tables='~/utils/lookup_tables/lookup_tables.hdf5',mode='global',**kwargs):
         '''
         performs the velocity conversion.
 
@@ -187,6 +403,13 @@ class model_2d(object):
                         one of either 'pyrolite', 'harzburgite', morb', or, 'mixture'
                         'mixture' uses a mechanical mixture of morb and harzburgite
 
+           mode: str
+                        current options: 'global', and 'rel1d'
+                        if 'global', the percent deviations are taken
+                        relative to the average. 
+                        if 'rel1d' the deviations are computed relative to a reference
+                        profile, defined by the user (see kwargs)
+
         kwargs:
            ref_theta_range: tuple
                             defines the theta range of what we consider to be 
@@ -194,9 +417,19 @@ class model_2d(object):
                             The entire model may not be desirable for the half
                             cylinder models if certain depths are heavily biased
                             by the presence strong dynamical structure
+           ref_f: float
+                  (if mode is 'rel1d') composition of the reference profile
+                  by default the value is 0.18 (i.e., pyrolite)
+           ref_T: numpy array
+                  (if mode is 'red1d') Temperature of reference profile
         '''
 
+        #get kwargs
         ref_theta_range = kwargs.get('ref_theta_range','full')
+        ref_f = kwargs.get('ref_f',0.18)
+        #ref_T = kwargs.get('ref_T',0)
+        ref_T = self.T_array[:,-1]
+
         tables = h5py.File(lookup_tables,'r')
         #read harzburgite lookuptable
         harz_vp_table = tables['harzburgite']['vp'][:]
@@ -244,26 +477,52 @@ class model_2d(object):
                 self.vs_array[i,j] = f_here*vs_morb + (1-f_here)*vs_harz
                 self.rho_array[i,j] = f_here*rho_morb + (1-f_here)*rho_harz
 
-        if ref_theta_range == 'full':
-            vp_avg = np.average(self.vp_array,axis=1)
-            vs_avg = np.average(self.vs_array,axis=1)
-            rho_avg = np.average(self.rho_array,axis=1)
-        else:
-            istart = ((ref_theta_range[0]-np.min(self.theta))/self.dtheta)
-            iend = ((ref_theta_range[1]-np.min(self.theta))/self.dtheta)
-            vp_avg = np.average(self.vp_array[:,istart:iend],axis=1)
-            vs_avg = np.average(self.vs_array[:,istart:iend],axis=1)
-            rho_avg = np.average(self.rho_array[:,istart:iend],axis=1)
-            plt.plot(vs_avg)
-            plt.show()
+        if mode=='global':
+
+            if ref_theta_range == 'full':
+                vp_avg = np.average(self.vp_array,axis=1)
+                vs_avg = np.average(self.vs_array,axis=1)
+                rho_avg = np.average(self.rho_array,axis=1)
+            else:
+                istart = ((ref_theta_range[0]-np.min(self.theta))/self.dtheta)
+                iend = ((ref_theta_range[1]-np.min(self.theta))/self.dtheta)
+                vp_avg = np.average(self.vp_array[:,istart:iend],axis=1)
+                vs_avg = np.average(self.vs_array[:,istart:iend],axis=1)
+                rho_avg = np.average(self.rho_array[:,istart:iend],axis=1)
+                plt.plot(vs_avg)
+                plt.show()
 
 
-        #calculate the percent deviation of vp, vs, and rho
-        for i in range(0,len(self.depth_axis)):
-            for j in range(0,len(self.theta_axis)):
-                self.dvp_array[i,j] = ((self.vp_array[i,j] - vp_avg[i])/vp_avg[i]) * 100.0
-                self.dvs_array[i,j] = ((self.vs_array[i,j] - vs_avg[i])/vs_avg[i]) * 100.0
-                self.drho_array[i,j] = ((self.rho_array[i,j] - rho_avg[i])/rho_avg[i]) * 100.0
+            #calculate the percent deviation of vp, vs, and rho
+            for i in range(0,len(self.depth_axis)):
+                for j in range(0,len(self.theta_axis)):
+                    self.dvp_array[i,j] = ((self.vp_array[i,j] - vp_avg[i])/vp_avg[i]) * 100.0
+                    self.dvs_array[i,j] = ((self.vs_array[i,j] - vs_avg[i])/vs_avg[i]) * 100.0
+                    self.drho_array[i,j] = ((self.rho_array[i,j] - rho_avg[i])/rho_avg[i]) * 100.0
+        elif mode=='rel1d':
+            vp_ref1d = np.zeros(len(self.depth_axis))
+            vs_ref1d = np.zeros(len(self.depth_axis))
+            rho_ref1d = np.zeros(len(self.depth_axis))
+
+            for i in range(0,len(self.depth_axis)):
+                P_here = self.P[::-1][i]
+                T_here = ref_T[i]
+                vp_harz = harz_vp_interpolator(P_here,T_here)
+                vs_harz = harz_vs_interpolator(P_here,T_here)
+                rho_harz = harz_rho_interpolator(P_here,T_here)
+                vp_morb = morb_vp_interpolator(P_here,T_here)
+                vs_morb = morb_vs_interpolator(P_here,T_here)
+                rho_morb = morb_rho_interpolator(P_here,T_here)
+                vp_ref1d[i] = ref_f*vp_morb + (1-ref_f)*vp_harz
+                vs_ref1d[i] = ref_f*vs_morb + (1-ref_f)*vs_harz
+                rho_ref1d[i] = ref_f*rho_morb + (1-ref_f)*rho_harz
+
+            #calculate the percent deviation of vp, vs, and rho
+            for i in range(0,len(self.depth_axis)):
+                for j in range(0,len(self.theta_axis)):
+                    self.dvp_array[i,j] = ((self.vp_array[i,j] - vp_ref1d[i])/vp_ref1d[i]) * 100.0
+                    self.dvs_array[i,j] = ((self.vs_array[i,j] - vs_ref1d[i])/vs_ref1d[i]) * 100.0
+                    self.drho_array[i,j] = ((self.rho_array[i,j] - rho_ref1d[i])/rho_ref1d[i]) * 100.0
 
         self.vp = np.ravel(self.vp_array) 
         self.vs = np.ravel(self.vs_array) 
@@ -1260,4 +1519,97 @@ def generate(phi=None, theta=None, rad=None):
 
     return points
 
+def gen_adiabat_interpolator(adiabat_dir):
+
+    p = []
+    pot_T = []
+    abs_T = []
+
+    ads = glob.glob(adiabat_dir+'./*.out')
+
+    for ad in ads:
+        pot_temp_str = ad.split('_')[1].split('K')[0]
+        pot_temp = int(pot_temp_str)
+        f = np.loadtxt(ad)
+        temp = f[:,0]
+        pressure = f[:,1]
+        for i in range(0,len(temp)):
+            p.append(pressure[i])
+            pot_T.append(pot_temp)
+            abs_T.append(temp[i])
+
+
+    #return pot_T,p,abs_T
+
+    #first interpolate irregular scatter data onto uniform mesh
+    x_i = np.arange(0,2550,50) #adiabats above 2500 are nonsense
+    #x_i = np.arange(0,1850,50) #adiabats above 2500 are nonsense
+    y_i = np.linspace(0,1350000,1000)
+    z_i = griddata((pot_T,p),abs_T, (x_i[None,:],y_i[:,None]), method='linear')
+
+    
+    plot = True
+    if plot:
+       #plt.scatter(pot_T,p,c=abs_T,cmap='viridis',edgecolor='none')
+       #plt.show()
+       fig = plt.figure(figsize=[6.5,4])
+       plt.contourf(x_i,y_i,z_i)
+       plt.colorbar(label='absolute T (K)')
+       plt.xlabel('potential T (K)')
+       plt.ylabel('pressure (bar)')
+       plt.xlim([300,3000])
+       plt.ylim([0,1350000])
+       plt.tight_layout()
+       plt.show()
+
+    #next make an interpolating function
+    rgi = RegularGridInterpolator(points=(x_i,y_i),values=z_i.T,
+            bounds_error=False,fill_value=None)
+    #rgi takes a tuple of (potential temp, pressure) and returns absolute temp
+
+    return rgi
+
+def add_basaltic_core(m,f_core,rad,mindep,maxdep):
+    '''
+    adds a basaltic core to a plume model
+
+    m: an instance of the 'model_2d' class
+    f_core: basalt fraction within the plume stem
+    rad: radius of basaltic cylinder (km)
+    mindep: minimum depth of basaltic cylinder (km)
+    maxdep: maximum depth of basaltic cylinder (km)
+    '''
+    for i in range(0,len(m.x)):
+        if m.depth[i] > mindep and m.depth[i] < maxdep and m.x[i] < rad:
+            m.f[i] = f_core
+
+    m.f_array = np.reshape(m.f,(m.npts_depth,m.npts_theta))
+
+def write_gmt_psxy_files(m,fname,field):
+   '''
+   writes scatter data to be plotted with psxy
+   format is x(km), radius (km), value
+   '''
+
+   f = open(fname,'w')
+
+   if field == 'T':
+       vals = m.T
+   elif field =='f':
+       vals = m.f
+   elif field =='vp':
+       vals = m.vp
+   elif field =='vs':
+       vals = m.vs
+   elif field =='rho':
+       vals = m.rho
+   elif field =='dvp':
+       vals = m.dvp
+   elif field =='dvs':
+       vals = m.dvs
+   elif field =='drho':
+       vals = m.drho
+
+   for i in range(0,len(m.theta)):
+       f.write('{} {} {}'.format(m.x[i],6371.0-m.depth[i],vals[i])+'\n')
 
