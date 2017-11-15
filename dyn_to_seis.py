@@ -120,7 +120,8 @@ class model_1d(object):
         i_2 = int(dep2 / self.ddepth) + int(self.depthmin/self.ddepth)
         self.f[i_1:i_2] = f
 
-    def velocity_conversion(self,composition,lookup_tables='~/utils/lookup_tables/lookup_tables.hdf5'):
+    def velocity_conversion(self,composition,
+            lookup_tables='/geo/home/romaguir/utils/lookup_tables/lookup_tables.hdf5'):
         '''
         performs the velocity conversion.
         args:
@@ -194,7 +195,7 @@ class model_2d(object):
     #from dyn_to_seis.dyn_to_seis import rotate_coordinates
     #TODO: write the following functions...
     #      rotate_cylinder
-    def init():
+    def init(self):
         self.depth = np.zeros(1)
         self.theta = np.zeros(1)
         self.T = np.zeros(1)
@@ -210,6 +211,7 @@ class model_2d(object):
         self.f_array = np.zeros((1,1))
         self.npts_theta = 0
         self.npts_depth = 0
+        self.fmt = 'na'
 
     def read(self,path_to_file,fmt='pvk',**kwargs):
         '''
@@ -259,10 +261,18 @@ class model_2d(object):
            depth = model[:,3]
            Tpot = model[:,4]
            f = model[:,5]
+           self.fmt='pvk'
+        elif fmt=='pvk_full':
+           x = model[:,0]
+           y = model[:,1]
+           Tpot = model[:,2]
+           f = model[:,3]
+           self.fmt='pvk_full'
         elif fmt=='plume':
            x = model[:,0]
            y = model[:,1]
            T = model[:,2]
+           self.fmt='plume'
 
         self.x = x
         self.y = y
@@ -272,6 +282,19 @@ class model_2d(object):
            self.f = f
            self.theta = theta
            self.depth = depth
+
+        elif fmt=='pvk_full':
+           self.T = Tpot
+           self.f = f
+           radius, theta_deg = geometry.cart2polar(self.x,self.y)
+           self.depth = 6371.0 - radius
+           self.theta = 90.0 - np.rad2deg(theta_deg)
+           for i in range(0,len(self.theta)):
+               if self.theta[i] > 360.0:
+                   self.theta[i] -= 360.0
+               elif self.theta[i] < 0.0:
+                   self.theta[i] += 360.0
+
         elif fmt=='plume':
            self.T = T
            self.f = np.zeros(len(self.T))
@@ -287,7 +310,7 @@ class model_2d(object):
                 self.f[i] = bf_scaling
 
         #normalize basalt composition field
-        self.f /= bf_scaling
+        self.f /= bf_scaling #Not sure if this is done correctly!
 
         #reshape scatter data into an array
         if fmt=='pvk':
@@ -299,6 +322,18 @@ class model_2d(object):
            self.depth_axis = np.arange(np.min(self.depth),np.max(self.depth)+ddepth,ddepth)
            npts_theta = len(self.theta_axis)
            npts_depth = len(self.depth_axis)
+
+        elif fmt=='pvk_full':
+           #this is the format use in EPSL2008/F_98 (gridTandC)
+           npts_theta = 360
+           npts_depth = 100
+           dtheta = 1.0
+           ddepth = 28.5
+           self.dtheta = dtheta
+           self.ddepth = ddepth
+           self.theta_axis = np.arange(np.min(self.theta),np.max(self.theta)+dtheta,dtheta)
+           #self.depth_axis = np.arange(np.min(self.depth),np.max(self.depth)+ddepth,ddepth)
+           self.depth_axis = np.linspace(np.min(self.depth),np.max(self.depth),npts_depth)
 
         elif fmt=='plume':
            npts_theta = 201
@@ -317,8 +352,13 @@ class model_2d(object):
            print ddepth, dtheta
            print self.T.shape, npts_depth, npts_theta, npts_depth*npts_theta
 
-        self.T_array = np.reshape(self.T,(npts_depth,npts_theta))
-        self.f_array = np.reshape(self.f,(npts_depth,npts_theta))
+        if fmt == 'pvk':
+           self.T_array = np.reshape(self.T,(npts_depth,npts_theta))
+           self.f_array = np.reshape(self.f,(npts_depth,npts_theta))
+
+        elif fmt == 'pvk_full':
+           self.T_array = np.reshape(self.T,(npts_depth,npts_theta),order='F')
+           self.f_array = np.reshape(self.f,(npts_depth,npts_theta),order='F')
 
         #get 1d pressure profile from PREM
         prem1d = prem()
@@ -345,7 +385,21 @@ class model_2d(object):
            self.T_array += surf_temp
            self.T = np.ravel(self.T_array)
 
-    def potT_to_absT(self,adiabat_dir):
+    def potT_to_absT(self):
+        from dyn_to_seis import gen_adiabat_interpolator,prem
+        prem = prem()
+        tp2ta = gen_adiabat_interpolator('/geo/home/romaguir/utils/LargeSetPyroliteAdiabats/')
+        for i in range(0,len(self.T)):
+            P_here = prem.get_p(self.depth[i])
+            P_here /= 1.0e5
+            self.T[i] = tp2ta((self.T[i],P_here))
+
+        if self.fmt == 'pvk':
+           self.T_array = np.reshape(self.T,(self.npts_depth,self.npts_theta))
+        elif self.fmt =='pvk_full':
+           self.T_array = np.reshape(self.T,(self.npts_depth,self.npts_theta),order='F')
+
+    def potT_to_absT_OLD(self,adiabat_dir):
         p = []
         pot_T = []
         abs_T = []
@@ -390,7 +444,9 @@ class model_2d(object):
                 new_T = rgi((self.T_array[i,j],self.P[::-1][i]))
                 self.T_array[i,j] = new_T
 
-    def velocity_conversion(self,composition,lookup_tables='~/utils/lookup_tables/lookup_tables.hdf5',mode='global',**kwargs):
+    def velocity_conversion(self,composition,
+            lookup_tables='/geo/home/romaguir/utils/lookup_tables/lookup_tables.hdf5',
+            mode='global',**kwargs):
         '''
         performs the velocity conversion.
 
@@ -524,12 +580,22 @@ class model_2d(object):
                     self.dvs_array[i,j] = ((self.vs_array[i,j] - vs_ref1d[i])/vs_ref1d[i]) * 100.0
                     self.drho_array[i,j] = ((self.rho_array[i,j] - rho_ref1d[i])/rho_ref1d[i]) * 100.0
 
-        self.vp = np.ravel(self.vp_array) 
-        self.vs = np.ravel(self.vs_array) 
-        self.rho = np.ravel(self.rho_array) 
-        self.dvp = np.ravel(self.dvp_array) 
-        self.dvs = np.ravel(self.dvs_array) 
-        self.drho = np.ravel(self.drho_array) 
+        if self.fmt == 'pvk' or self.fmt =='plume':
+           self.vp = np.ravel(self.vp_array) 
+           self.vs = np.ravel(self.vs_array) 
+           self.rho = np.ravel(self.rho_array) 
+           self.dvp = np.ravel(self.dvp_array) 
+           self.dvs = np.ravel(self.dvs_array) 
+           self.drho = np.ravel(self.drho_array) 
+        elif self.fmt == 'pvk_full':
+           self.vp = np.ravel(self.vp_array,order='F') 
+           self.vs = np.ravel(self.vs_array,order='F') 
+           self.rho = np.ravel(self.rho_array,order='F') 
+           self.dvp = np.ravel(self.dvp_array,order='F') 
+           self.dvs = np.ravel(self.dvs_array,order='F') 
+           self.drho = np.ravel(self.drho_array,order='F') 
+        else:
+           raise ValueError('format', self.fmt, 'not recognized')
 
     def twoD_to_threeD(self,npts_z,npts_lat,npts_lon,var='dvs',**kwargs):
         '''
@@ -1520,6 +1586,10 @@ def generate(phi=None, theta=None, rad=None):
     return points
 
 def gen_adiabat_interpolator(adiabat_dir):
+    '''
+    used in conversion from potential temperature to absolute
+    temperature.  
+    '''
 
     p = []
     pot_T = []
@@ -1537,7 +1607,6 @@ def gen_adiabat_interpolator(adiabat_dir):
             p.append(pressure[i])
             pot_T.append(pot_temp)
             abs_T.append(temp[i])
-
 
     #return pot_T,p,abs_T
 
@@ -1613,3 +1682,38 @@ def write_gmt_psxy_files(m,fname,field):
    for i in range(0,len(m.theta)):
        f.write('{} {} {}'.format(m.x[i],6371.0-m.depth[i],vals[i])+'\n')
 
+def full_cyl_to_half_cyl(m):
+    m.x = m.x[0:len(m.x)/2]
+    m.y = m.y[0:len(m.y)/2]
+    m.T = m.T[0:len(m.T)/2]
+    m.f = m.f[0:len(m.f)/2]
+    m.theta = m.theta[0:len(m.depth)/2]
+    m.depth = m.depth[0:len(m.depth)/2]
+
+    i_stop = m.npts_theta / 2
+
+    m.theta_axis = m.theta_axis[0:i_stop]
+    m.T_array = m.T_array[:,0:i_stop]
+    m.f_array = m.f_array[:,0:i_stop]
+
+    return m
+
+def rotate_full_cyl(m,degrees):
+    m.theta += degrees
+    th = np.deg2rad(degrees)
+    R = np.array([[np.cos(th),-1.0*np.sin(th)],[np.sin(th),np.cos(th)]])
+    pts = np.vstack((m.x,m.y))
+    rotated = R.dot(pts)
+    m.x = rotated[0,:]
+    m.y = rotated[1,:]
+    for i in range(0,len(m.theta)):
+        if m.theta[i] > 360.0:
+            m.theta[i] = m.theta[i] - 360.0
+        elif m.theta[i] < 0.0:
+            m.theta[i] = m.theta[i] + 360.0
+
+    i_roll = int(degrees/m.dtheta) * -1
+    m.T_array = np.roll(m.T_array,i_roll,axis=1)
+    m.f_array = np.roll(m.f_array,i_roll,axis=1)
+
+    return m
