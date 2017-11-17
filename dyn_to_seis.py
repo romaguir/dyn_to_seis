@@ -4,6 +4,7 @@ import glob
 import pickle
 import numpy as np
 import matplotlib.pyplot as plt
+from copy import deepcopy
 from scipy.misc import imresize
 from scipy.interpolate import interp1d, interp2d,interpn,RegularGridInterpolator,griddata
 from numpy import cos, sin, pi
@@ -385,14 +386,23 @@ class model_2d(object):
            self.T_array += surf_temp
            self.T = np.ravel(self.T_array)
 
-    def potT_to_absT(self):
+    def potT_to_absT(self,debug=False):
         from dyn_to_seis import gen_adiabat_interpolator,prem
         prem = prem()
-        tp2ta = gen_adiabat_interpolator('/geo/home/romaguir/utils/LargeSetPyroliteAdiabats/')
+        tp2ta = gen_adiabat_interpolator('/geo/home/romaguir/utils/LargeSetPyroliteAdiabats/',debug=True)
         for i in range(0,len(self.T)):
+            if self.T[i] < 350:
+                self.T[i] = 350.0
+
             P_here = prem.get_p(self.depth[i])
             P_here /= 1.0e5
-            self.T[i] = tp2ta((self.T[i],P_here))
+            T_here = tp2ta((self.T[i],P_here))
+
+            if debug:
+               if np.isnan(T_here):
+                  print 'Tpot:',self.T[i],'depth:',self.depth[i],'P:',P_here
+
+            self.T[i] = T_here
 
         if self.fmt == 'pvk':
            self.T_array = np.reshape(self.T,(self.npts_depth,self.npts_theta))
@@ -734,6 +744,24 @@ class model_2d(object):
             plt.xlabel('basalt fraction')
             plt.ylabel('depth (km)')
             plt.show()
+        elif var=='vp':
+            plt.plot(np.average(self.vp_array,axis=1),self.depth_axis[::-1])
+            plt.gca().invert_yaxis()
+            plt.xlabel('basalt fraction')
+            plt.ylabel('depth (km)')
+            plt.show()
+        elif var=='vs':
+            plt.plot(np.average(self.vs_array,axis=1),self.depth_axis[::-1])
+            plt.gca().invert_yaxis()
+            plt.xlabel('basalt fraction')
+            plt.ylabel('depth (km)')
+            plt.show()
+
+    def scaleT(self,scale_factor):
+        '''
+        scales temperatures by scale_factor
+        '''
+        self.T *= scale_factor
 
     def write_2d_output(self,filename,fmt='pvk'):
         if fmt == 'pvk':
@@ -1585,7 +1613,7 @@ def generate(phi=None, theta=None, rad=None):
 
     return points
 
-def gen_adiabat_interpolator(adiabat_dir):
+def gen_adiabat_interpolator(adiabat_dir,plot=False,debug=False):
     '''
     used in conversion from potential temperature to absolute
     temperature.  
@@ -1616,8 +1644,10 @@ def gen_adiabat_interpolator(adiabat_dir):
     y_i = np.linspace(0,1350000,1000)
     z_i = griddata((pot_T,p),abs_T, (x_i[None,:],y_i[:,None]), method='linear')
 
-    
-    plot = True
+    if debug:
+        print 'min z_i:',np.min(z_i)
+        print 'max z_i:',np.max(z_i)
+
     if plot:
        #plt.scatter(pot_T,p,c=abs_T,cmap='viridis',edgecolor='none')
        #plt.show()
@@ -1683,37 +1713,68 @@ def write_gmt_psxy_files(m,fname,field):
        f.write('{} {} {}'.format(m.x[i],6371.0-m.depth[i],vals[i])+'\n')
 
 def full_cyl_to_half_cyl(m):
-    m.x = m.x[0:len(m.x)/2]
-    m.y = m.y[0:len(m.y)/2]
-    m.T = m.T[0:len(m.T)/2]
-    m.f = m.f[0:len(m.f)/2]
-    m.theta = m.theta[0:len(m.depth)/2]
-    m.depth = m.depth[0:len(m.depth)/2]
+    n = deepcopy(m)
+    n.x = n.x[0:len(n.x)/2]
+    n.y = n.y[0:len(n.y)/2]
+    n.T = n.T[0:len(n.T)/2]
+    n.f = n.f[0:len(n.f)/2]
+    n.theta = n.theta[0:len(n.depth)/2]
+    n.depth = n.depth[0:len(n.depth)/2]
 
-    i_stop = m.npts_theta / 2
+    i_stop = n.npts_theta / 2
 
-    m.theta_axis = m.theta_axis[0:i_stop]
-    m.T_array = m.T_array[:,0:i_stop]
-    m.f_array = m.f_array[:,0:i_stop]
+    n.theta_axis = n.theta_axis[0:i_stop]
+    n.T_array = n.T_array[:,0:i_stop]
+    n.f_array = n.f_array[:,0:i_stop]
 
-    return m
+    return n
 
 def rotate_full_cyl(m,degrees):
-    m.theta += degrees
-    th = np.deg2rad(degrees)
-    R = np.array([[np.cos(th),-1.0*np.sin(th)],[np.sin(th),np.cos(th)]])
-    pts = np.vstack((m.x,m.y))
-    rotated = R.dot(pts)
-    m.x = rotated[0,:]
-    m.y = rotated[1,:]
-    for i in range(0,len(m.theta)):
-        if m.theta[i] > 360.0:
-            m.theta[i] = m.theta[i] - 360.0
-        elif m.theta[i] < 0.0:
-            m.theta[i] = m.theta[i] + 360.0
+    n = deepcopy(m)
+    n.theta += degrees
 
-    i_roll = int(degrees/m.dtheta) * -1
-    m.T_array = np.roll(m.T_array,i_roll,axis=1)
-    m.f_array = np.roll(m.f_array,i_roll,axis=1)
+    #th = np.deg2rad(degrees)
+    #R = np.array([[np.cos(th),-1.0*np.sin(th)],[np.sin(th),np.cos(th)]])
+    #pts = np.vstack((n.x,n.y))
+    #rotated = R.dot(pts)
+    #n.x = rotated[0,:]
+    #n.y = rotated[1,:]
 
-    return m
+    i_roll = (int(degrees/n.dtheta) * n.npts_depth) * -1
+    
+    #rotate T and C vectors
+    n.T = np.roll(m.T,i_roll)
+    n.f = np.roll(m.f,i_roll)
+    #try to rotate velocity and density fields
+    try:
+        n.vp = np.roll(m.vp,i_roll)
+        n.vs = np.roll(m.vs,i_roll)
+        n.rho = np.roll(m.rho,i_roll)
+        n.dvp = np.roll(m.dvp,i_roll)
+        n.dvs = np.roll(m.dvs,i_roll)
+        n.drho = np.roll(m.drho,i_roll)
+    except AttributeError:
+        print 'Vs, Vp, and Rho not found... please perform velocity conversion'
+
+    for i in range(0,len(n.theta)):
+        if n.theta[i] > 360.0:
+            n.theta[i] = n.theta[i] - 360.0
+        elif n.theta[i] < 0.0:
+            n.theta[i] = n.theta[i] + 360.0
+
+    i_roll = int(degrees/n.dtheta) * -1
+    n.T_array = np.roll(m.T_array,i_roll,axis=1)
+    n.f_array = np.roll(m.f_array,i_roll,axis=1)
+
+    try:
+       n.vp_array = np.roll(m.vp_array,i_roll,axis=1)
+       n.vs_array = np.roll(m.vs_array,i_roll,axis=1)
+       n.rho_array = np.roll(m.rho_array,i_roll,axis=1)
+       n.dvp_array = np.roll(m.dvp_array,i_roll,axis=1)
+       n.dvs_array = np.roll(m.dvs_array,i_roll,axis=1)
+       n.drho_array = np.roll(m.drho_array,i_roll,axis=1)
+    except AttributeError:
+        print 'Vs, Vp, and Rho not found... please perform velocity conversion'
+
+
+    return n
