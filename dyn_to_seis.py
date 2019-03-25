@@ -9,8 +9,30 @@ from scipy.misc import imresize
 from scipy.interpolate import interp1d, interp2d,interpn,RegularGridInterpolator,griddata
 from numpy import cos, sin, pi
 from tvtk.api import tvtk
-from mayavi.scripts import mayavi2
-from seis_tools.models import geometry
+#from mayavi.scripts import mayavi2
+#from seis_tools.models import geometry
+
+def cart2polar(x,y):
+   '''
+   Given x,y in cartesian coordinates, returns r, theta
+   '''
+
+   r = np.sqrt(x**2+y**2)
+   theta = np.arctan2(y,x)
+
+   return r,theta
+
+def polar2cart(radius,theta,theta_deg=True):
+   '''
+   takes polar coordinates and returns cartesian.theta should be in degree
+   '''
+   if theta_deg == True:
+       theta = np.radians(theta)
+
+   x = radius*np.cos(theta)
+   y = radius*np.sin(theta)
+   return(x,y)
+
 
 def rotation_matrix(n,phi):
 
@@ -287,7 +309,7 @@ class model_2d(object):
         elif fmt=='pvk_full':
            self.T = Tpot
            self.f = f
-           radius, theta_deg = geometry.cart2polar(self.x,self.y)
+           radius, theta_deg = cart2polar(self.x,self.y)
            self.depth = 6371.0 - radius
            self.theta = 90.0 - np.rad2deg(theta_deg)
            for i in range(0,len(self.theta)):
@@ -300,7 +322,7 @@ class model_2d(object):
            self.T = T
            self.f = np.zeros(len(self.T))
            self.f[:] = plume_f
-           radius, lat_rad = geometry.cart2polar(self.x,self.y)
+           radius, lat_rad = cart2polar(self.x,self.y)
            self.depth = 6371.0 - radius
            self.theta = 90.0 - np.rad2deg(lat_rad)
 
@@ -311,7 +333,17 @@ class model_2d(object):
                 self.f[i] = bf_scaling
 
         #normalize basalt composition field
-        self.f /= bf_scaling #Not sure if this is done correctly!
+        #self.f /= bf_scaling #Not sure if this is done correctly!
+
+        #normalize basalt composition field
+        # C = 0 is pure harzburgite, C = 1 is pyrolite C = 8? is pure basalt
+        pyro_c = 0.125
+        for i in range(0,len(self.f)):
+           self.f[i] *= pyro_c
+           #self.f[i] /= pyro_c
+
+           if self.f[i] >= 1.0:
+              self.f[i] = 1.0
 
         #reshape scatter data into an array
         if fmt=='pvk':
@@ -386,10 +418,10 @@ class model_2d(object):
            self.T_array += surf_temp
            self.T = np.ravel(self.T_array)
 
-    def potT_to_absT(self,debug=False):
+    def potT_to_absT(self,adiabats_dir,debug=False):
         from dyn_to_seis import gen_adiabat_interpolator,prem
         prem = prem()
-        tp2ta = gen_adiabat_interpolator('/geo/home/romaguir/utils/LargeSetPyroliteAdiabats/',debug=True)
+        tp2ta = gen_adiabat_interpolator(adiabats_dir,debug=False)
         for i in range(0,len(self.T)):
             if self.T[i] < 350:
                 self.T[i] = 350.0
@@ -407,7 +439,12 @@ class model_2d(object):
         if self.fmt == 'pvk':
            self.T_array = np.reshape(self.T,(self.npts_depth,self.npts_theta))
         elif self.fmt =='pvk_full':
-           self.T_array = np.reshape(self.T,(self.npts_depth,self.npts_theta),order='F')
+           cut_in_half = True
+           cut_in_half = False
+           if cut_in_half:
+              self.T_array = np.reshape(self.T,(self.npts_depth,(self.npts_theta/2)),order='F')
+           else:
+              self.T_array = np.reshape(self.T,(self.npts_depth,self.npts_theta),order='F')
 
     def potT_to_absT_OLD(self,adiabat_dir):
         p = []
@@ -415,6 +452,7 @@ class model_2d(object):
         abs_T = []
 
         ads = glob.glob(adiabat_dir+'./*.out')
+        print 'ADIABATS IN DIRECTORY/',ads
 
         for ad in ads:
             pot_temp_str = ad.split('_')[1].split('K')[0]
@@ -454,7 +492,7 @@ class model_2d(object):
                 new_T = rgi((self.T_array[i,j],self.P[::-1][i]))
                 self.T_array[i,j] = new_T
 
-    def velocity_conversion(self,composition,
+    def velocity_conversion(self,composition,basalt_fraction=0.18,
             lookup_tables='/geo/home/romaguir/utils/lookup_tables/lookup_tables.hdf5',
             mode='global',**kwargs):
         '''
@@ -466,8 +504,8 @@ class model_2d(object):
                           path to h5py lookup tables
 
            composition: str
-                        one of either 'pyrolite', 'harzburgite', morb', or, 'mixture'
-                        'mixture' uses a mechanical mixture of morb and harzburgite
+                        'dynamic' to use f from dynamic simulations or 
+                        'constant' to set f with argument 'basalt_fraction'
 
            mode: str
                         current options: 'global', and 'rel1d'
@@ -495,6 +533,10 @@ class model_2d(object):
         ref_f = kwargs.get('ref_f',0.18)
         #ref_T = kwargs.get('ref_T',0)
         ref_T = self.T_array[:,-1]
+
+        if composition == 'constant':
+           self.f[:] = basalt_fraction
+           self.f_array[:,:] = basalt_fraction
 
         tables = h5py.File(lookup_tables,'r')
         #read harzburgite lookuptable
@@ -528,11 +570,13 @@ class model_2d(object):
         self.dvp_array = np.zeros(self.T_array.shape)
         self.dvs_array = np.zeros(self.T_array.shape)
         self.drho_array = np.zeros(self.T_array.shape)
+        self.deltaT_array = np.zeros(self.T_array.shape)
         for i in range(0,len(self.depth_axis)):
             for j in range(0,len(self.theta_axis)):
                 P_here = self.P[::-1][i]
                 T_here = self.T_array[i,j]
                 f_here = self.f_array[i,j]
+                print f_here
                 vp_harz = harz_vp_interpolator(P_here,T_here)
                 vs_harz = harz_vs_interpolator(P_here,T_here)
                 rho_harz = harz_rho_interpolator(P_here,T_here)
@@ -549,6 +593,7 @@ class model_2d(object):
                 vp_avg = np.average(self.vp_array,axis=1)
                 vs_avg = np.average(self.vs_array,axis=1)
                 rho_avg = np.average(self.rho_array,axis=1)
+                T_avg = np.average(self.T_array,axis=1)
             else:
                 istart = ((ref_theta_range[0]-np.min(self.theta))/self.dtheta)
                 iend = ((ref_theta_range[1]-np.min(self.theta))/self.dtheta)
@@ -565,6 +610,7 @@ class model_2d(object):
                     self.dvp_array[i,j] = ((self.vp_array[i,j] - vp_avg[i])/vp_avg[i]) * 100.0
                     self.dvs_array[i,j] = ((self.vs_array[i,j] - vs_avg[i])/vs_avg[i]) * 100.0
                     self.drho_array[i,j] = ((self.rho_array[i,j] - rho_avg[i])/rho_avg[i]) * 100.0
+                    self.deltaT_array[i,j] = self.T_array[i,j] - T_avg[i]
         elif mode=='rel1d':
             vp_ref1d = np.zeros(len(self.depth_axis))
             vs_ref1d = np.zeros(len(self.depth_axis))
@@ -604,10 +650,11 @@ class model_2d(object):
            self.dvp = np.ravel(self.dvp_array,order='F') 
            self.dvs = np.ravel(self.dvs_array,order='F') 
            self.drho = np.ravel(self.drho_array,order='F') 
+           self.deltaT = np.ravel(self.deltaT_array,order='F') 
         else:
            raise ValueError('format', self.fmt, 'not recognized')
 
-    def twoD_to_threeD(self,npts_z,npts_lat,npts_lon,var='dvs',**kwargs):
+    def twoD_to_threeD(self,npts_z,npts_lat,npts_lon,var='dvs',debug=True,**kwargs):
         '''
         extrapolates 2d half-circle into 3D earth.
 
@@ -634,8 +681,16 @@ class model_2d(object):
         dlon = 360.0/npts_lon
 
         #first interpolate 2D grid to new grid (if a different resolution is required)
-        grid_interp = RegularGridInterpolator((self.depth_axis,self.theta_axis),
-                                              vals, bounds_error=False)
+        if debug:
+           print 'function twoD_to_threeD: STARTING 2D INTERPOLATION'
+           print 'self.depth_axis (len{}):'.format(len(self.depth_axis)), self.depth_axis
+           print 'self.theta_axis (len{}):'.format(len(self.theta_axis)), self.theta_axis
+           print 'shape of self.depth_axis:', self.depth_axis.shape
+           print 'shape of self.theta_aixs:', self.theta_axis.shape
+           print 'shape of vals:', vals.shape
+        grid_interp = RegularGridInterpolator((self.depth_axis,self.theta_axis),vals, bounds_error=False)
+        if debug:
+           print 'FINISHED 2D INTERPOLATION'
 
         x_i = np.linspace(0,z_mantle,npts_z)
         y_i = np.linspace(0,180.0,npts_lat)
@@ -765,6 +820,7 @@ class model_2d(object):
 
     def write_2d_output(self,filename,fmt='pvk'):
         if fmt == 'pvk':
+            #np.savetxt(filename,np.c_[self.x,self.y,self.theta,self.depth,self.T,self.f,self.dvp,self.dvs,self.drho,self.deltaT], fmt='%3f')
             np.savetxt(filename,np.c_[self.x,self.y,self.theta,self.depth,self.T,self.f,self.dvp,self.dvs,self.drho], fmt='%3f')
 
 # 3D_model_class
@@ -1154,6 +1210,7 @@ def write_s40_filter_inputs(model_3d,**kwargs):
 
       #open file and write header
       out_name = str(model_name)+'.'+str(count)+'.dat' 
+      print 'out_name', out_name
       output   = open(save_dir+'/'+out_name,'w')
 
       output.write('{}'.format(6371.0-model_3d.rad[i+1])+'\n')
@@ -1623,10 +1680,12 @@ def gen_adiabat_interpolator(adiabat_dir,plot=False,debug=False):
     pot_T = []
     abs_T = []
 
-    ads = glob.glob(adiabat_dir+'./*.out')
+    ads = glob.glob(adiabat_dir+'/*.out')
+    print 'ADIABATS IN DIRECTORY = ', ads
 
     for ad in ads:
-        pot_temp_str = ad.split('_')[1].split('K')[0]
+        pot_temp_str = ad.split('_')[2].split('K')[0]
+        print '*******************pot_temp_str = ',pot_temp_str
         pot_temp = int(pot_temp_str)
         f = np.loadtxt(ad)
         temp = f[:,0]
@@ -1778,3 +1837,42 @@ def rotate_full_cyl(m,degrees):
 
 
     return n
+
+def pile(wavelen,H,dv_in):
+   '''
+   wavelen = width of the base of the pile, in km
+   H =  height of the pile from the CMB, in km
+   dv_in = seismic velocity perturbation within the pile, in %
+   '''
+   m = model_2d()
+   m.theta_axis = np.linspace(0.0,180.0,181)
+   m.depth_axis = np.linspace(0.0,2891.0,100) 
+   m.radius_axis = 6371.0 - m.depth_axis
+   m.radius_axis = np.linspace(3480.0,6371.0,100)
+   theta_array,depth_array = np.meshgrid(m.theta_axis,m.depth_axis)
+   m.depth = np.ravel(depth_array)
+   m.theta = np.ravel(theta_array)
+   m.radius = 6371.0 - m.depth
+   m.dvs_array = np.zeros(depth_array.shape)
+   m.dvp_array = np.zeros(depth_array.shape)
+   m.drho_array = np.zeros(depth_array.shape)
+
+   rad_CMB = 3480.0
+
+   k = 0
+   for i in range(0,len(m.radius_axis)):
+      km_per_deg = (2.0*np.pi*m.radius[i])/360.0
+      for j in range(0,len(m.theta_axis)):
+         d_in_km = m.theta_axis[j] * km_per_deg #distance from axis in km
+         km_above_core = m.radius_axis[i] - rad_CMB 
+
+         #horizontal distance between axis and ellipse
+         dist_from_axis = np.sqrt(wavelen**2*(1.0-(km_above_core**2/H**2)))
+ 
+         if d_in_km <= dist_from_axis and km_above_core <= H:
+
+            m.dvs_array[i,j] = dv_in
+            m.dvp_array[i,j] = dv_in
+            m.drho_array[i,j] = dv_in
+
+   return m
