@@ -440,7 +440,6 @@ class model_2d(object):
            self.T_array = np.reshape(self.T,(self.npts_depth,self.npts_theta))
         elif self.fmt =='pvk_full':
            cut_in_half = True
-           cut_in_half = False
            if cut_in_half:
               self.T_array = np.reshape(self.T,(self.npts_depth,(self.npts_theta/2)),order='F')
            else:
@@ -452,7 +451,7 @@ class model_2d(object):
         abs_T = []
 
         ads = glob.glob(adiabat_dir+'./*.out')
-        print 'ADIABATS IN DIRECTORY/',ads
+        #print 'ADIABATS IN DIRECTORY/',ads
 
         for ad in ads:
             pot_temp_str = ad.split('_')[1].split('K')[0]
@@ -1681,11 +1680,11 @@ def gen_adiabat_interpolator(adiabat_dir,plot=False,debug=False):
     abs_T = []
 
     ads = glob.glob(adiabat_dir+'/*.out')
-    print 'ADIABATS IN DIRECTORY = ', ads
+    #print 'ADIABATS IN DIRECTORY = ', ads
 
     for ad in ads:
         pot_temp_str = ad.split('_')[2].split('K')[0]
-        print '*******************pot_temp_str = ',pot_temp_str
+        #print '*******************pot_temp_str = ',pot_temp_str
         pot_temp = int(pot_temp_str)
         f = np.loadtxt(ad)
         temp = f[:,0]
