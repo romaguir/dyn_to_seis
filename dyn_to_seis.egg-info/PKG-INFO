@@ -1,0 +1,10 @@
+Metadata-Version: 1.0
+Name: dyn-to-seis
+Version: 0.1
+Summary: Package for investigating seismic expressions of geodynamic models
+Home-page: www.github.com/romaguir/dyn_to_seis
+Author: Ross Maguire
+Author-email: rmaguire@umd.edu
+License: GNU
+Description: UNKNOWN
+Platform: UNKNOWN

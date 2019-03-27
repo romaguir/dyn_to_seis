@@ -1,0 +1,174 @@
+#!/bin/bash
+#Creates post-filtering report
+gmtset LABEL_FONT_SIZE		= 10p
+
+#------------------------------------------------------------------------------
+#set some paths
+#------------------------------------------------------------------------------
+BIN=/home/rmaguire/tomo/S20RTS_plotting/bin
+S20RTS_plotting=/home/rmaguire/tomo/S20RTS_plotting
+gu12=/home/rmaguire/utils/colors/gu12.chj
+viridis=/home/rmaguire/utils/colors/viridis.cpt 
+my_jet=/home/rmaguire/utils/colors/jet.cpt 
+
+#------------------------------------------------------------------------------
+# Read report details
+#------------------------------------------------------------------------------
+report_name=`grep model_name inparam_filter | awk '{print $2}'`
+model_path=`grep dynamic_model inparam_filter | awk '{print $2}'`
+rotation_angle=`grep rotation_angle inparam_filter | awk '{print $2}'`
+Tscale=`grep Tscale inparam_filter | awk '{print $2}'`
+composition=`grep composition inparam_filter | awk '{print $2}'`
+lat=`grep lat_new inparam_filter | awk '{print $2}'`
+lon=`grep lon_new inparam_filter | awk '{print $2}'`
+dir_name=`grep dir_name inparam_filter | awk '{print $2}'`
+file=report_$report_name
+
+#------------------------------------------------------------------------------
+# Setup report
+#------------------------------------------------------------------------------
+region=0/1/0/1
+scale=X8.5i/11i
+echo 0.01 0.85 16 0 1 TL @_Report for model $report_name@_ | pstext \
+	-R$region -J$scale -K -P > $file.ps
+echo 0.01 0.83 12 0 1 TL Path to simulation: $model_path  | pstext \
+	 -R -J -P -O -K >> $file.ps
+echo 0.01 0.81 12 0 1 TL Cylinder rotation: $rotation_angle  | pstext \
+	 -R -J -P -O -K >> $file.ps
+echo 0.01 0.79 12 0 1 TL lon , lat of symmetry axis : $lon , $lat  | pstext \
+	 -R -J -P -O -K >> $file.ps
+echo 0.01 0.77 12 0 1 TL composition: $composition  | pstext \
+	-R -J -P -O -K >> $file.ps
+echo 0.01 0.73 14 0 1 TL @_Dynamic Model@_  | pstext -R -J -P -O -K >> $file.ps
+echo 0.01 0.39 14 0 1 TL @_Filtered@_  | pstext -R -J -P -O -K >> $file.ps
+
+#------------------------------------------------------------------------------
+# Input model plots
+#------------------------------------------------------------------------------
+
+let alpha=90-$rotation_angle
+echo alpha $alpha
+
+region1=90/270/3400/6371
+region2=-90/90/3400/6371
+
+scale=P1i
+dx=0.1
+dy=10
+
+makecpt -Chot -T1000/3000/200 -D > T.cpt
+makecpt -C$viridis -T0/1.0/0.1 -D -Z > C.cpt
+makecpt -C$my_jet -T-5.0/5.0/1.0 -D -I -Z > dvs.cpt
+
+#make gu12 colormap
+icont=0
+mxc=5.0
+echo $gu12 > in_mkrb
+echo $icont >> in_mkrb
+echo $mxc >> in_mkrb
+$BIN/mkrb_jr < in_mkrb > dvs.cpt
+
+#temperature plot
+awk -v var=$alpha '{print (($3+var)),6371-$4,$5}' $report_name.dat | surface \
+	-Gdummy.grd -I$dx/$dy -R$region1 -T0.5
+grdimage -Y5.5i dummy.grd -R$region1 -J$scale -CT.cpt \
+	-Ba0::/a0:"depth (km)":/:"T@_POT@_ (K)":WSne -K -O -P >> $file.ps
+awk -v var=$alpha '{print (((($3+var)-90)*-1)+90),6371-$4,$5}' $report_name.dat | surface \
+	-Gdummy.grd -I$dx/$dy -R$region2 -T0.5
+grdimage dummy.grd -X1i -R$region2 -J$scale -CT.cpt \
+	-Ba0::/a0:"depth (km)":/:"T@_POT@_ (K)":WSne -K -O -P >> $file.ps
+psscale -D0.0/-0.25/1/0.10h -Ba1000:"T@-POT@- (K)": -CT.cpt -K -O -P >> $file.ps
+
+#composition plot
+awk -v var=$alpha '{print ($3+var),6371-$4,$6}' $report_name.dat | surface \
+	-Gdummy.grd -I$dx/$dy -R$region1 -T0.5
+grdimage -X1.5i dummy.grd -R$region1 -J$scale -CC.cpt \
+	-Ba0::/a0:"depth (km)":/:"basalt fraction":WSne -K -O -P >> $file.ps
+awk -v var=$alpha '{print ((($3+var)-90)*-1)+90,6371-$4,$6}' $report_name.dat | surface \
+	-Gdummy.grd -I$dx/$dy -R$region2 -T0.5
+grdimage dummy.grd -X1i -R$region2 -J$scale -CC.cpt \
+	-Ba0::/a0:"depth (km)":/:"basalt fraction":WSne -K -O -P >> $file.ps
+psscale -D0.0/-0.25/1/0.10h -Ba0.2:"basalt fraction": -CC.cpt -K -O -P >> $file.ps
+
+#dvs plot
+awk -v var=$alpha '{print ($3+var),6371-$4,$8}' $report_name.dat | surface \
+	-Gdummy.grd -I$dx/$dy -R$region1 -T0.5
+grdimage -X1.5i dummy.grd -R$region1 -J$scale -Cdvs.cpt \
+	-Ba0::/a0:"depth (km)":/:"dVs (%)":WSne -K -O -P >> $file.ps
+awk -v var=$alpha '{print ((($3+var)-90)*-1)+90,6371-$4,$8}' $report_name.dat | surface \
+	-Gdummy.grd -I$dx/$dy -R$region2 -T0.5
+grdimage dummy.grd -X1i -R$region2 -J$scale -Cdvs.cpt \
+	-Ba0::/a0:"depth (km)":/:"dVs (%)":WSne -K -O -P >> $file.ps
+psscale -D0.0/-0.25/1/0.10h -Ba1:"dVs (%)": -Cdvs.cpt -K -O -P >> $file.ps
+
+#------------------------------------------------------------------------------
+# Cross sections
+#------------------------------------------------------------------------------
+az1=0
+az2=45
+az3=90
+az4=135
+#lon=180
+region_globe=0/360/-90/90
+scale_globe=G$lat/$lon/1i
+region_slice=0/180/3400/6371
+scale_slice=P3i
+
+#makecpt -Cjet -T-1/1/0.05 -D -Z > filtered.cpt
+makecpt -Cjet -T-2.5/2.5/0.25 -D -Z > filtered.cpt
+#makecpt -Cjet -T-2/2/0.2 -D -Z > filtered.cpt
+
+#make gu12 colormap
+icont=0
+mxc=2.5
+echo $gu12 > in_mkrb
+echo $icont >> in_mkrb
+echo $mxc >> in_mkrb
+$BIN/mkrb_jr < in_mkrb > dvs.cpt
+
+#cross section 1
+$S20RTS_plotting/crossect_180 $lat $lon $az1 MODEL_OUT $dir_name/oupm.$report_name.s40
+gmtset LABEL_FONT_SIZE		= 10p
+#psbasemap -Y-3.5i -X-5i -R$region_slice -J$scale_slice -B0 -K -O -P >> $file.ps
+grdimage uit.grd -Y-3.5i -X-6i -R$region_slice -J$scale_slice \
+	-B0 -Cdvs.cpt -K -O -P >> $file.ps
+psscale -D1.5/0.35/1/0.10h -Ba1:"dVs (%)": -Cdvs.cpt -K -O -P >> $file.ps
+pscoast -Y1i -X-.25i -R$region_globe -J$scale_globe -B0 -W2\
+	-A1000 -Ggrey -K -O -P >> $file.ps
+psxy gcpath -R$region_globe -J$scale_globe -W5 -K -O -P >> $file.ps
+
+#cross section 2
+$S20RTS_plotting/crossect_180 $lat $lon $az2 MODEL_OUT $dir_name/oupm.$report_name.s40
+gmtset LABEL_FONT_SIZE		= 10p
+#psbasemap -Y-1i -X4i -R$region_slice -J$scale_slice -B0 -K -O -P >> $file.ps
+grdimage uit.grd -Y-1i -X4i -R$region_slice -J$scale_slice \
+	-B0 -Cdvs.cpt -K -O -P >> $file.ps
+psscale -D1.5/0.35/1/0.10h -Ba1:"dVs (%)": -Cdvs.cpt -K -O -P >> $file.ps
+pscoast -Y1i -X-.25i -R$region_globe -J$scale_globe -B0 -W2\
+	-A1000 -Ggrey -K -O -P >> $file.ps
+psxy gcpath -R$region_globe -J$scale_globe -W5 -K -O -P >> $file.ps
+
+#cross section 3
+$S20RTS_plotting/crossect_180 $lat $lon $az3 MODEL_OUT $dir_name/oupm.$report_name.s40
+gmtset LABEL_FONT_SIZE		= 10p
+#psbasemap -Y-3.25i -X-3.5i -R$region_slice -J$scale_slice -B0 -K -O -P >> $file.ps
+grdimage uit.grd -Y-3.25i -X-3.5i -R$region_slice -J$scale_slice \
+	-B0 -Cdvs.cpt -K -O -P >> $file.ps
+psscale -D1.5/0.35/1/0.10h -Ba1:"dVs (%)": -Cdvs.cpt -K -O -P >> $file.ps
+pscoast -Y1i -X-.25i -R$region_globe -J$scale_globe -B0 -W2\
+	-A1000 -Ggrey -K -O -P >> $file.ps
+psxy gcpath -R$region_globe -J$scale_globe -W5 -K -O -P >> $file.ps
+
+#cross section 4
+$S20RTS_plotting/crossect_180 $lat $lon $az4 MODEL_OUT $dir_name/oupm.$report_name.s40
+gmtset LABEL_FONT_SIZE		= 10p
+#psbasemap -Y-1i -X4i -R$region_slice -J$scale_slice -B0 -K -O -P >> $file.ps
+grdimage uit.grd -Y-1i -X4i -R$region_slice -J$scale_slice \
+	-B0 -Cdvs.cpt -K -O -P >> $file.ps
+psscale -D1.5/0.35/1/0.10h -Ba1:"dVs (%)": -Cdvs.cpt -K -O -P >> $file.ps
+pscoast -Y1i -X-.25i -R$region_globe -J$scale_globe -B0 -W2\
+	-A1000 -Ggrey -K -O -P >> $file.ps
+psxy gcpath -R$region_globe -J$scale_globe -W5 -K -O -P >> $file.ps
+
+ps2pdf $file.ps
+rm $file.ps

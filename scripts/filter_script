@@ -1,0 +1,235 @@
+#!/bin/csh -f
+
+#-- TOMO should be defined!
+#-- setenv TOMO = $HOME/src/Tomography
+#-- This is the parent directory of tomofilt/
+#-- and includes various routines related to s20/s40rts.
+#-- I also put BackusGilbert/ and S20RTS_plotting/ in $TOMO
+
+#set model_dir=$1
+set model_dir=$1
+set model_name=$2
+set last_layer=$3
+
+#mkdir $model_name
+cd $model_dir
+
+set TOMO = /home/rmaguire/tomo
+echo TOMO is defined to be \"$TOMO\"
+
+#-- UTILS should be defined!
+#-- setenv TOMO = $HOME/Utils
+#-- This directory includes the various S2RTS and S40RTS
+#-- model files such the smth and evc files
+#-- Separate the S20 and S40 files into the
+#-- subdirectories $UTILS/S20RTS and $UTILS/S40RTS
+
+set UTILS = /home/rmaguire/tomo/tomofilt/UTILS
+
+echo UTILS is defined to be \"$UTILS\"
+
+#-- working directory of tomofilt
+set FILT = $TOMO/tomofilt
+
+#-- Directory for binaries
+#-- Compile first the libraries in tomofilt/lib
+#-- and then the code in tomofilt/src
+set FB   = $FILT/bin
+if (! -e $FILT/bin ) then
+  mkdir $FILT/bin
+endif
+echo a8
+
+#-- Directory with Geodynamics simulations
+set gdir = $FILT/$model_dir
+#-- Parameters defined here are specific to
+#-- Bernard Schuberth's simulations (Schuberth et al. 2009)
+set run         = $2
+set id          = $2
+#echo cat $gdir/$run/$id
+#-- First layer below the crust
+#set first_layer = 1
+#-- Last layer above the core
+#set last_layer  = 62
+
+#-- Parameters defined here are specific to plume model R1b
+#set run = pyrolite_1523K
+#set id = pyrolite_1523K
+set run = $model_name
+set id = $model_name
+#echo cat $gdir/$run/$id
+set working_dir=`pwd`
+echo 'WORKING DIR', $working_dir
+#echo cat $working_dir/$run/$id
+echo cat $working_dir/$model_dir/$id
+#-- First layer below the crust
+set first_layer = 1
+#-- Last layer above the core
+
+#-- UTILS is the directory that contains files related to models S20RTS and S40RTS.
+#-- They are in the subdirectories S20RTS/ and S40RTS/.
+#-- degree = 20 for S20RTS
+#-- degree = 40 for S40RTS
+set degree = 40
+if ($degree != 20 && $degree != 40) then
+   echo Define \"degree\" to be either 20 or 40
+   exit
+endif
+
+#----------------------------------------------------------
+#-- I made symbolic links to the .evc and .smthp_21 files
+
+#-- data weights
+set wtfile = $UTILS/S${degree}RTS/s${degree}.smth
+#-- eigenvector file
+set evcfl  = $UTILS/S${degree}RTS/s${degree}.evc
+
+#-- regularization factor which depends mostly
+#-- on the sampling of dVs in the simulations.
+set regl = 1
+
+#-- norm damping: decrease/increase eps if you want less/more damping
+#-- The numbers below are chosen in the inversions for s20/s40rts
+if      ($degree == 20) then
+  set eps = 35d-4
+else if ($degree == 40) then
+  set eps = 15d-4
+endif
+
+#----------------------------------------------------------
+#-- do_step1 = 1 --> project each layer into the SPH parameterization
+set do_step1 = 1
+#-- do_step2 = 1 --> catting of SPH files 
+set do_step2 = 1
+
+#-- do_clean = 1 --> removing left-overs
+set do_clean = 1
+
+
+#--------------------------------------------------------------
+#-- Step 1
+#--
+#-- Projecting the field parameters into SPH parameterization
+#-- Do this for each layer separately
+if ( $do_step1 ) then
+  #-- begin with layer "first_layer" (below the crust ...)
+  @ iz = $first_layer
+  while ( $iz < $last_layer )
+    echo Working on layer $iz ...
+    #-- make a copy
+    #cat $gdir/$run/$id.$iz.dat > out
+    #cat $gdir/$id.$iz.dat > out
+    cat `pwd`/$id.$iz.dat > out
+
+    #-- depth range
+    cat out | head -2 > header
+    set dep1 = `cat header | head -1 | awk '{print $1}'`
+    set dep2 = `cat header | tail -1 | awk '{print $1}'`
+    echo Depth range = $dep1 - $dep2
+
+    #--  number of gridpoints
+    set n = `wc -l out | awk '{print $1}'`
+    #--  reduce by 2 (i.e., the number of header lines)
+    @ n--
+    @ n--
+
+    #-- copy maps (without header) into "inpm" 
+    cat out | tail -$n | awk '{print $2, $1, $3}' > inpm
+    
+    #-- make RAW file (... projection into spherical harmonics).
+    #-- This is only necessary for iz="first_layer", because all the
+    #-- layers have the same distribution of points on the globe
+    #-- so the spherical harmonic expansion coefficients are the same for each layer.
+    #-- If the layers have different distributions, we will need to run
+    #-- mkexpmatxy for each layer separately.
+    #-- Can be done, but let's assume here that the grids for each layer are the same ....
+    echo Making RAW file ...
+    if ($iz == $first_layer) then
+      echo Running mkexpmatxy
+      echo inpm       >  in
+      echo inpm.a     >> in
+      echo inpm.evc   >> in
+      echo $degree    >> in
+      $FB/mkexpmatxy  <  in
+    endif
+    echo Running invexpandxy
+    echo inpm         >  in
+    echo inpm.raw     >> in
+    echo inpm.a       >> in
+    echo inpm.evc     >> in
+    echo $regl        >> in
+    $FB/invexpandxy   < in
+  
+    #-- Projecting this layer into the 3D SPH (s20rts/s40rts) parameterization
+    echo Running sphexp
+    echo inpm.raw     >  in
+    echo $dep1        >> in
+    echo $dep2        >> in
+    echo inpm.$iz.sph >> in
+    $FB/sphexp        <  in
+    @ iz++
+  end
+endif
+
+#--------------------------------------------------------------
+#-- Step 2
+#--
+#-- Catting each layer into a single SPH file
+if ( $do_step2 ) then
+  #-- Cat SPH files
+  foreach sph ( inpm.?.sph inpm.??.sph inpm.???.sph )
+    set n = $sph:r:e
+    if ($n == $first_layer) then
+     /bin/cp $sph ll.sph
+    else
+     #-- ll.sph = ll.sph + $sph
+     echo ll.sph       >  in
+     echo $sph         >> in
+     echo dummy.sph    >> in
+     $FB/sphadd        < in  > out_sphadd
+     /bin/mv dummy.sph ll.sph
+    endif
+  end
+  /bin/mv ll.sph inpm.$id.par.sph
+endif
+#-- The file "inpm.$id.par.sph" is the geodynamics file
+#-- projected into the s20rts/s40rts parameterization
+
+#--------------------------------------------------------------
+#-- Step 3
+#--
+#-- Convolving "inpm.$id.par.sph" with the resolution matrix
+echo $evcfl            >  in
+echo inpm.$id.par.sph  >> in
+echo oupm              >> in
+echo "CPM"             >> in
+echo $eps              >> in
+echo $wtfile           >> in
+$FB/mk3d_res           <  in
+
+echo oupm.spt          >  in
+$FB/spt2sph            <  in
+# 
+/bin/mv oupm..SP.sph oupm.$id.s$degree.sph
+
+#-- The file "oupm.$id.s$degree.sph" is the geodynamics file
+#-- projected into the s20rts parameterization and filtered
+#-- using the resolution matrix: m' = Rm.
+#-- See Ritsema et al. 2007
+
+#--------------------------------------------------------------
+#-- Step 4
+#--
+#-- clean up
+
+#if ( $do_clean ) then
+#   /bin/rm in inpm inpm.evc inpm.a out header inpm.raw oupm.spt out_sphadd
+#   /bin/rm inpm.?.sph inpm.??.sph inpm.???.sph tmp.evc fort.103
+#endif
+
+pwd
+#mv *.sph ../spike_tests/lateral_extent_tests/processed/2x2
+#mv *.sph $out_dir
+mv $FILT/$model_name/inpm*par*sph* $FILT/$model_dir
+mv $FILT/$model_name/oupm*s40*sph* $FILT/$model_dir
+/bin/rm -r $FILT/$model_name

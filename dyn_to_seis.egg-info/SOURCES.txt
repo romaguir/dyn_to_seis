@@ -1,0 +1,10 @@
+README.md
+setup.py
+dyn_to_seis.egg-info/PKG-INFO
+dyn_to_seis.egg-info/SOURCES.txt
+dyn_to_seis.egg-info/dependency_links.txt
+dyn_to_seis.egg-info/requires.txt
+dyn_to_seis.egg-info/top_level.txt
+scripts/filter_script
+scripts/gen_mod_for_s40filter
+scripts/plot_report

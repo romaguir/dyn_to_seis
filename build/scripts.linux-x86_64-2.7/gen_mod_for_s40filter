@@ -1,0 +1,82 @@
+#!/home/rmaguire/anaconda2/bin/python
+from __future__ import print_function
+import dyn_to_seis
+from dyn_to_seis.dyn_to_seis import model_2d
+from dyn_to_seis.dyn_to_seis import write_s40_filter_inputs
+from dyn_to_seis.dyn_to_seis import rotate_full_cyl
+from dyn_to_seis.dyn_to_seis import full_cyl_to_half_cyl
+
+adiabats_dir = dyn_to_seis.__path__[0]+'/data/LargeSetPyroliteAdiabats/'
+tables = dyn_to_seis.__path__[0]+'/data/lookup_tables.hdf5'
+
+print(adiabats_dir)
+print(tables)
+
+def read_inparams(inparams_file):
+
+   with open(inparams_file) as f:
+      #first line contains nothing
+      line = f.readline()
+
+      #start reading info
+      line = f.readline()
+      dyn_model = line.strip().split()[1]
+      #line = f.readline()
+      #tables = line.strip().split()[1]
+      #line = f.readline()
+      #adiabats_dir = line.strip().split()[1]
+      line = f.readline()
+      theta_deg = float(line.strip().split()[1])
+      line = f.readline()
+      Tscale = float(line.strip().split()[1])
+      line = f.readline()
+      composition = line.strip().split()[1]
+      line = f.readline()
+      basalt_fraction = float(line.strip().split()[1])
+      line = f.readline()
+      lat_new = float(line.strip().split()[1])
+      line = f.readline()
+      lon_new = float(line.strip().split()[1])
+      line = f.readline()
+      n_layers = int(line.strip().split()[1])
+      line = f.readline()
+      out_dir = line.strip().split()[1]
+      line = f.readline()
+      out_name = line.strip().split()[1]
+
+      #make parameter dictionary
+      param_dict = {'dyn_model':dyn_model,
+                    #'tables':tables,
+                    #'adiabats_dir':adiabats_dir,
+                    'theta_deg':theta_deg,
+                    'Tscale':Tscale,
+                    'composition':composition,
+                    'basalt_fraction':basalt_fraction,
+                    'new_pole':(lat_new,lon_new),
+                    'out_dir':out_dir,
+                    'out_name':out_name,
+                    'n_layers':n_layers }
+
+      return param_dict
+
+def main():
+   param_dict = read_inparams('inparam_filter')
+   print('THIS SHOULD BE BUILDING MODEL', param_dict['dyn_model'])
+   save_dir = param_dict['out_dir']+'/'+param_dict['out_name']
+   m = model_2d()
+   m.read(param_dict['dyn_model'],fmt='pvk_full')
+   m.scaleT(param_dict['Tscale'])
+   m = rotate_full_cyl(m,param_dict['theta_deg'])
+   m = full_cyl_to_half_cyl(m)
+   m.potT_to_absT(adiabats_dir=adiabats_dir)
+   m.velocity_conversion(lookup_tables=tables,
+                         composition=param_dict['composition'],
+                         basalt_fraction=param_dict['basalt_fraction'])
+   m.write_2d_output(filename=param_dict['out_name']+'.dat')
+   mod3d = m.twoD_to_threeD(npts_z=param_dict['n_layers']+1,npts_lat=181,npts_lon=361,var='dvs')
+   mod3d.rotate_3d(destination=param_dict['new_pole']) #rotate north pole of model to new location
+   write_s40_filter_inputs(mod3d,save_dir=param_dict['out_dir'],model_name=param_dict['out_name'])
+   #write_s40_filter_inputs(mod3d,save_dir=save_dir,model_name=param_dict['out_name'])
+
+#run the program
+main()

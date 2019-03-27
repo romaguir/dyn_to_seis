@@ -1,0 +1,11 @@
+#filter parameters-----------------------------------------------
+dynamic_model:         /home/rmaguire/EPSL2008_F98/EED_008/gridTandC/TandC.800 #path to half cylinder
+rotation_angle:        0 #angle to rotate full cylinder before cutting in half (in degrees)
+Tscale                 0.76 #scale factor by which to multiple potT by before conversion to absT
+composition:           dynamic #either 'dynamic' to use composition field from simulations or 'constant' to set basalt_fraction below
+basalt_fraction:       0.18 #if using composition 'mix', specify basalt fraction
+lat_new:               0.0 #new latitude of the north pole
+lon_new:               0.0 #new longitude of the north pole
+n_layers:              50 #number of layers in filter input model
+dir_name:              EED_008.800 #directory to save the S40 input layers
+model_name:            EED_008.800 #set name of model
