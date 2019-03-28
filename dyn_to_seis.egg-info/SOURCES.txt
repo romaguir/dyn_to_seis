@@ -1,5 +1,8 @@
 README.md
 setup.py
+dyn_to_seis/__init__.py
+dyn_to_seis/dyn_to_seis.py
+dyn_to_seis/seis1d.py
 dyn_to_seis.egg-info/PKG-INFO
 dyn_to_seis.egg-info/SOURCES.txt
 dyn_to_seis.egg-info/dependency_links.txt

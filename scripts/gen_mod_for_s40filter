@@ -6,11 +6,8 @@ from dyn_to_seis.dyn_to_seis import write_s40_filter_inputs
 from dyn_to_seis.dyn_to_seis import rotate_full_cyl
 from dyn_to_seis.dyn_to_seis import full_cyl_to_half_cyl
 
-adiabats_dir = dyn_to_seis.__path__[0]+'/data/LargeSetPyroliteAdiabats/'
-tables = dyn_to_seis.__path__[0]+'/data/lookup_tables.hdf5'
-
-print(adiabats_dir)
-print(tables)
+adiabats_dir = dyn_to_seis.__path__[0]+'/../data/LargeSetPyroliteAdiabats/'
+tables = dyn_to_seis.__path__[0]+'/../data/lookup_tables.hdf5'
 
 def read_inparams(inparams_file):
 

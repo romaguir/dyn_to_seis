@@ -11,8 +11,8 @@ set model_dir=$1
 set model_name=$2
 set last_layer=$3
 
-mkdir $model_name
-cd $model_name
+#mkdir $model_name
+cd $model_dir
 
 set TOMO = /home/rmaguire/tomo
 echo TOMO is defined to be \"$TOMO\"
@@ -41,7 +41,6 @@ endif
 echo a8
 
 #-- Directory with Geodynamics simulations
-#set gdir = $FILT/pyrolite_0_0
 set gdir = $FILT/$model_dir
 #-- Parameters defined here are specific to
 #-- Bernard Schuberth's simulations (Schuberth et al. 2009)
@@ -58,7 +57,11 @@ set id          = $2
 #set id = pyrolite_1523K
 set run = $model_name
 set id = $model_name
-echo cat $gdir/$run/$id
+#echo cat $gdir/$run/$id
+set working_dir=`pwd`
+echo 'WORKING DIR', $working_dir
+#echo cat $working_dir/$run/$id
+echo cat $working_dir/$model_dir/$id
 #-- First layer below the crust
 set first_layer = 1
 #-- Last layer above the core
@@ -114,7 +117,9 @@ if ( $do_step1 ) then
   while ( $iz < $last_layer )
     echo Working on layer $iz ...
     #-- make a copy
-    cat $gdir/$run/$id.$iz.dat > out
+    #cat $gdir/$run/$id.$iz.dat > out
+    #cat $gdir/$id.$iz.dat > out
+    cat `pwd`/$id.$iz.dat > out
 
     #-- depth range
     cat out | head -2 > header

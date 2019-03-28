@@ -3,6 +3,15 @@
 gmtset LABEL_FONT_SIZE		= 10p
 
 #------------------------------------------------------------------------------
+#set some paths
+#------------------------------------------------------------------------------
+BIN=/home/rmaguire/tomo/S20RTS_plotting/bin
+S20RTS_plotting=/home/rmaguire/tomo/S20RTS_plotting
+gu12=/home/rmaguire/utils/colors/gu12.chj
+viridis=/home/rmaguire/utils/colors/viridis.cpt 
+my_jet=/home/rmaguire/utils/colors/jet.cpt 
+
+#------------------------------------------------------------------------------
 # Read report details
 #------------------------------------------------------------------------------
 report_name=`grep model_name inparam_filter | awk '{print $2}'`
@@ -40,30 +49,18 @@ echo 0.01 0.39 14 0 1 TL @_Filtered@_  | pstext -R -J -P -O -K >> $file.ps
 let alpha=90-$rotation_angle
 echo alpha $alpha
 
-#region2=90/270/3400/6371
-#region1=-90/90/3400/6371
 region1=90/270/3400/6371
 region2=-90/90/3400/6371
 
 scale=P1i
-cmap=/home/rmaguire/utils/colors/viridis.cpt
-gu12=/home/rmaguire/utils/colors/gu12.chj
 dx=0.1
 dy=10
 
-#makecpt -Chot -T273/3000/200 -D > T.cpt
 makecpt -Chot -T1000/3000/200 -D > T.cpt
-
-#makecpt -C$cmap -T0/0.2/0.1 -D -Z > C.cpt
-#makecpt -C$cmap -T0/1.0/0.1 -D -Z > C.cpt
-makecpt -C/home/rmaguire/utils/colors/viridis.cpt -T0/1.0/0.1 -D -Z > C.cpt
-
-#makecpt -Cpolar -T-2.0/2.0/0.1 -D -I > dvs.cpt
-#makecpt -Cjet -T-2.0/2.0/0.1 -D -I > dvs.cpt
-makecpt -C/home/rmaguire/utils/colors/jet.cpt -T-5.0/5.0/1.0 -D -I -Z > dvs.cpt
+makecpt -C$viridis -T0/1.0/0.1 -D -Z > C.cpt
+makecpt -C$my_jet -T-5.0/5.0/1.0 -D -I -Z > dvs.cpt
 
 #make gu12 colormap
-BIN=/home/rmaguire/tomo/S20RTS_plotting/bin
 icont=0
 mxc=5.0
 echo $gu12 > in_mkrb
@@ -122,7 +119,6 @@ makecpt -Cjet -T-2.5/2.5/0.25 -D -Z > filtered.cpt
 #makecpt -Cjet -T-2/2/0.2 -D -Z > filtered.cpt
 
 #make gu12 colormap
-BIN=/home/rmaguire/tomo/S20RTS_plotting/bin
 icont=0
 mxc=2.5
 echo $gu12 > in_mkrb
@@ -131,7 +127,7 @@ echo $mxc >> in_mkrb
 $BIN/mkrb_jr < in_mkrb > dvs.cpt
 
 #cross section 1
-../S20RTS_plotting/crossect_180 $lat $lon $az1 MODEL_OUT $dir_name/oupm.$report_name.s40
+$S20RTS_plotting/crossect_180 $lat $lon $az1 MODEL_OUT $dir_name/oupm.$report_name.s40
 gmtset LABEL_FONT_SIZE		= 10p
 #psbasemap -Y-3.5i -X-5i -R$region_slice -J$scale_slice -B0 -K -O -P >> $file.ps
 grdimage uit.grd -Y-3.5i -X-6i -R$region_slice -J$scale_slice \
@@ -142,7 +138,7 @@ pscoast -Y1i -X-.25i -R$region_globe -J$scale_globe -B0 -W2\
 psxy gcpath -R$region_globe -J$scale_globe -W5 -K -O -P >> $file.ps
 
 #cross section 2
-../S20RTS_plotting/crossect_180 $lat $lon $az2 MODEL_OUT $dir_name/oupm.$report_name.s40
+$S20RTS_plotting/crossect_180 $lat $lon $az2 MODEL_OUT $dir_name/oupm.$report_name.s40
 gmtset LABEL_FONT_SIZE		= 10p
 #psbasemap -Y-1i -X4i -R$region_slice -J$scale_slice -B0 -K -O -P >> $file.ps
 grdimage uit.grd -Y-1i -X4i -R$region_slice -J$scale_slice \
@@ -153,7 +149,7 @@ pscoast -Y1i -X-.25i -R$region_globe -J$scale_globe -B0 -W2\
 psxy gcpath -R$region_globe -J$scale_globe -W5 -K -O -P >> $file.ps
 
 #cross section 3
-../S20RTS_plotting/crossect_180 $lat $lon $az3 MODEL_OUT $dir_name/oupm.$report_name.s40
+$S20RTS_plotting/crossect_180 $lat $lon $az3 MODEL_OUT $dir_name/oupm.$report_name.s40
 gmtset LABEL_FONT_SIZE		= 10p
 #psbasemap -Y-3.25i -X-3.5i -R$region_slice -J$scale_slice -B0 -K -O -P >> $file.ps
 grdimage uit.grd -Y-3.25i -X-3.5i -R$region_slice -J$scale_slice \
@@ -164,7 +160,7 @@ pscoast -Y1i -X-.25i -R$region_globe -J$scale_globe -B0 -W2\
 psxy gcpath -R$region_globe -J$scale_globe -W5 -K -O -P >> $file.ps
 
 #cross section 4
-../S20RTS_plotting/crossect_180 $lat $lon $az4 MODEL_OUT $dir_name/oupm.$report_name.s40
+$S20RTS_plotting/crossect_180 $lat $lon $az4 MODEL_OUT $dir_name/oupm.$report_name.s40
 gmtset LABEL_FONT_SIZE		= 10p
 #psbasemap -Y-1i -X4i -R$region_slice -J$scale_slice -B0 -K -O -P >> $file.ps
 grdimage uit.grd -Y-1i -X4i -R$region_slice -J$scale_slice \
