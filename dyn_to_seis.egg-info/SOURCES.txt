@@ -8,6 +8,8 @@ dyn_to_seis.egg-info/SOURCES.txt
 dyn_to_seis.egg-info/dependency_links.txt
 dyn_to_seis.egg-info/requires.txt
 dyn_to_seis.egg-info/top_level.txt
+scripts/dofilt_ESEP_new
 scripts/filter_script
 scripts/gen_mod_for_s40filter
+scripts/gen_mod_for_sp12filter
 scripts/plot_report

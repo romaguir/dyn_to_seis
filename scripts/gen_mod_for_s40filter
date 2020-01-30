@@ -60,12 +60,15 @@ def main():
    param_dict = read_inparams('inparam_filter')
    print('THIS SHOULD BE BUILDING MODEL', param_dict['dyn_model'])
    save_dir = param_dict['out_dir']+'/'+param_dict['out_name']
+
    m = model_2d()
    m.read(param_dict['dyn_model'],fmt='pvk_full')
    m.scaleT(param_dict['Tscale'])
    m = rotate_full_cyl(m,param_dict['theta_deg'])
    m = full_cyl_to_half_cyl(m)
-   m.potT_to_absT(adiabats_dir=adiabats_dir)
+   m.add_adiabat(adiabats_dir+'/adiabat_1600K.out')
+   #m.potT_to_absT(adiabats_dir=adiabats_dir)
+
    m.velocity_conversion(lookup_tables=tables,
                          composition=param_dict['composition'],
                          basalt_fraction=param_dict['basalt_fraction'])

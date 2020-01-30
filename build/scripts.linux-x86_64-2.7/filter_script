@@ -227,9 +227,9 @@ $FB/spt2sph            <  in
 #   /bin/rm inpm.?.sph inpm.??.sph inpm.???.sph tmp.evc fort.103
 #endif
 
-pwd
+#pwd
 #mv *.sph ../spike_tests/lateral_extent_tests/processed/2x2
 #mv *.sph $out_dir
-mv $FILT/$model_name/inpm*par*sph* $FILT/$model_dir
-mv $FILT/$model_name/oupm*s40*sph* $FILT/$model_dir
-/bin/rm -r $FILT/$model_name
+#mv $FILT/$model_name/inpm*par*sph* $FILT/$model_dir
+#mv $FILT/$model_name/oupm*s40*sph* $FILT/$model_dir
+#/bin/rm -r $FILT/$model_name

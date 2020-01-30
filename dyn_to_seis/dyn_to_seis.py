@@ -1228,6 +1228,8 @@ def write_s40_filter_inputs(model_3d,**kwargs):
    '''
    model_name  = kwargs.get('model_name','none')
    save_dir    = kwargs.get('save_dir','./')
+   nameformat  = kwargs.get('nameformat','S40')
+   var         = kwargs.get('var','dvs')
 
    if os.path.exists(save_dir) == False:
       os.makedirs(save_dir)
@@ -1245,17 +1247,35 @@ def write_s40_filter_inputs(model_3d,**kwargs):
 
    #check for nans
    model_3d.data = np.nan_to_num(model_3d.data)
+   layer_ends = []
+
+   if nameformat == 'SP12':
+      #depth_layers = open('{}/{}/depth_layers.dat'.format(save_dir,model_name),'w')
+      depth_layers = open('{}/depth_layers.dat'.format(save_dir),'w')
+      depth_layers.write('{:04d}\n'.format(0))
     
    for i in range(0,len(depth)-1):
       count = len(depth) - i - 1
 
       #open file and write header
-      out_name = str(model_name)+'.'+str(count)+'.dat' 
+
+      if nameformat == 'SP12':
+         out_name ='{}.{}.layer.{:03d}.dat'.format(model_name,var,count)
+      else:
+         out_name = str(model_name)+'.'+str(count)+'.dat' 
+
       print('out_name', out_name)
       output   = open(save_dir+'/'+out_name,'w')
 
-      output.write('{}'.format(6371.0-model_3d.rad[i+1])+'\n')
-      output.write('{}'.format(6371.0-model_3d.rad[i])+'\n')
+      if nameformat == 'SP12':
+         depth_here = 6371.0 - model_3d.rad[i]
+         depth_here = int(depth_here)
+         layer_ends.append(depth_here)
+         #depth_layers.write('{:04d}\n'.format(depth_here))
+      
+      else:
+         output.write('{}'.format(6371.0-model_3d.rad[i+1])+'\n')
+         output.write('{}'.format(6371.0-model_3d.rad[i])+'\n')
 
       for j in range(0,len(lat)-1):
          for k in range(0,len(lon)-1):
@@ -1268,6 +1288,9 @@ def write_s40_filter_inputs(model_3d,**kwargs):
 
             line = '{} {} {}'.format(lat[j],lon[k],value)
             output.write(line+'\n')
+
+   for depth_here in layer_ends[::-1]:
+      depth_layers.write('{:04d}\n'.format(depth_here))
 
 def rotate_about_axis(tr,lon_0=60.0,lat_0=0.0,degrees=0):
    '''

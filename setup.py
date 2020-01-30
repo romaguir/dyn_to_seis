@@ -13,5 +13,7 @@ setup(name='dyn_to_seis',
       install_requires=['numpy','h5py','mayavi'],
       scripts = ['scripts/gen_mod_for_s40filter',
                  'scripts/filter_script',
-                 'scripts/plot_report'],
+                 'scripts/plot_report',
+                 'scripts/dofilt_ESEP_new',
+                 'scripts/gen_mod_for_sp12filter'],
       license='GNU')

@@ -7,5 +7,5 @@ basalt_fraction:       0.18 #if using composition 'mix', specify basalt fraction
 lat_new:               0.0 #new latitude of the north pole
 lon_new:               0.0 #new longitude of the north pole
 n_layers:              50 #number of layers in filter input model
-dir_name:              EED_008.800 #directory to save the S40 input layers
-model_name:            EED_008.800 #set name of model
+dir_name:              qTEST_SP12 #directory to save the S40 input layers
+model_name:            qTEST_SP12 #set name of model
