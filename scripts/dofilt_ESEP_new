@@ -1,0 +1,431 @@
+#!/bin/csh -f
+
+if ( $#argv < 4 ) then
+  echo "This filtering script needs a few arguments to run" 
+  echo "Please specify the geodynamic model directory and names of the dvs and dvp slices, "
+  echo "as well as the first and last layers"
+  echo "e.g. dofilt_ESEP model names firstlay lastlay"
+  echo "e.g. ./dofilt_ESEP examplemodel examplefile 1 64"
+  echo "Please try again, with the right argument this time."
+  exit
+endif
+
+#-- This is the working directory of tomofilt/
+set TOMOFILT = /home/rmaguire/tomofilt_new_ESEP
+echo TOMOFILT is defined to be \"$TOMOFILT\"
+
+#-- This includes the various SP12RTS models, as well as the S20RTS/S40RTS
+#-- model files such the smth and evc files
+#-- These are separated into the subdirectories 
+#-- subdirectories $UTILS/SP12RTS, $UTILS/S12RTS, $UTILS/S20RTS and $UTILS/S40RTS
+set UTILS = $TOMOFILT/utils
+echo UTILS is defined to be \"$UTILS\"
+
+#-- binaries
+set BINDIR = $TOMOFILT/bin
+
+#-- Directory with Geodynamics simulations
+#set gdir = $TOMOFILT/geodyn
+set gdir = $1
+
+#-- Parameters defined here are for the geodynamic simulation
+set model         = $2 
+set names         = $3 
+echo model directory defined to be \"$gdir/$model\"
+#-- First layer below the crust
+#set first_layer = $3
+set first_layer = 1
+#-- Last layer above the core
+set last_layer  = $4
+echo $last_layer layers in input model
+
+#-- degree = 12 for SP12RTS
+set degree = 12
+echo Filtering up to degree $degree
+if ($degree != 12) then
+  echo Define \"degree\" to be 12
+  exit
+endif
+
+#----------------------------------------------------------
+#-- Symbolic links to the .evc and .smthp_21 files
+
+echo Filtering files defined to be
+#-- data weights
+set wtfile = $UTILS/SP${degree}RTS/SP${degree}RTS.smthp_42
+echo \"$wtfile\"
+#-- eigenvector file
+set evcfl  = $UTILS/SP${degree}RTS/SP${degree}RTS.evc
+echo \"$evcfl\"
+#-- header file
+set header  = $UTILS/SP${degree}RTS/header.spt
+echo \"$header\"
+
+#-- regularization factor which depends mostly
+#-- on the sampling of dVs in the simulations.
+set regl = 1
+
+#-- norm damping decrease (increase) eps if you want less (more) damping
+#-- The numbers below are chosen in the actual model inversions.
+if ($degree == 12) then
+  set eps = 50d-4
+endif
+
+#-- spacing for the calculation of equidistant points in depth slices in step 6 
+#-- The numbers below reflect more or less the detail expected in each model
+if ($degree == 12) then
+  set spacing = 5
+endif
+
+#----------------------------------------------------------
+#-- do_step1 = 1 --> run the projection and catting for each SPH file
+set do_step1 = 1
+#-- do_step1a = 1 --> project each layer into the SPH parameterisation
+set do_step1a = 1
+#-- do_step1b = 1 --> catting of SPH files 
+set do_step1b = 1
+
+#-- do_step2 = 1 --> adding of SPH files into SPT file
+set do_step2 = 1
+#-- do_step3 = 1 --> applying resolution matrix 
+set do_step3 = 1
+
+#-- do_clean = 1 --> removing left-overs
+set do_clean = 1
+
+#-- do_expand = 1 --> calc velocity of repar and filt files for input points 
+set do_expand = 1
+
+if ( $do_expand == 2 ) then
+  echo "Note - output files currently not generated"
+endif
+
+#-- do_compare = 1 --> calc velocity of repar and filt files for every 25 km and equidistant points
+set do_compare = 1
+
+if ( $do_compare == 2 ) then
+  echo "Note - model comparisons currently not performed"
+endif
+
+#--------------------------------------------------------------
+
+#-- Step 1
+#-- Run the reparametrisation for both the dvs and dvp models
+#-- We assume slice files for both are present in the same directory
+#-- and that they have the same number of layers
+if ( $do_step1 == 1 ) then
+  foreach name ( ${names}.dvs ${names}.dvp )
+  echo "Reparameterising file:" $name
+
+  #-- Step 1a
+  #--
+  #-- Projecting the field parameters into SPH parameterisation
+  #-- Do this for each layer separately
+  if ( $do_step1a == 1 ) then
+    #-- begin with layer "first_layer" (below the crust ...)
+    @ iz = $first_layer
+    while ( $iz < $last_layer )
+      echo Working on layer $iz ...
+      #-- make a copy
+      set num = ` echo $iz | awk '{if ($1<10) print "00"$1 ; else if ($1<100) print "0"$1 ; else print $1}' `
+
+      cat $gdir/$model/${name}.layer.${num}.dat > out
+
+      #-- depth range
+      set dep1 = `awk -v iz=$iz '{if (NR==iz) print $0}' $gdir/$model/depth_layers.dat `
+      set dep2 = `awk -v iz=$iz '{if (NR==iz+1) print $0}' $gdir/$model/depth_layers.dat `
+      echo Depth range = $dep1 - $dep2
+
+      #--  number of gridpoints
+      set n = `wc -l out | awk '{print $1}'`
+      echo Number of gridpoints = $n
+
+      #-- copy maps into "inpm" 
+      cat out | awk '{print $1, $2, $3}' > inpm
+    
+      #-- make RAW file (... projection into spherical harmonics).
+      #-- This is only necessary for iz="first_layer", because all the
+      #-- layers have the same distribution of points on the globe
+      #-- so the spherical harmonic expansion coefficients are the same for each layer.
+      #-- If the layers have different distributions, you will need to run
+      #-- mkexpmatxy for each layer separately.
+      #-- Can be done, but let's assume here that the grids for each layer are the same ....
+      echo Making RAW file ...
+      if ($iz == $first_layer) then
+        echo Running mkexpmatxy
+        echo inpm       >  in
+        echo inpm.a     >> in
+        echo inpm.evc   >> in
+        echo $degree    >> in
+        $BINDIR/mkexpmatxy  <  in
+      endif
+      echo Running invexpandxy
+      echo inpm         >  in
+      echo inpm.raw     >> in
+      echo inpm.a       >> in
+      echo inpm.evc     >> in
+      echo $regl        >> in
+      $BINDIR/invexpandxy   < in
+  
+      #-- Projecting this layer into the 3D SPH (s12rts/s20rts/s40rts) parameterisation
+      echo Running sphexp
+      echo inpm.raw     >  in
+      echo $dep1        >> in
+      echo $dep2        >> in
+      echo inpm.$iz.sph >> in
+      $BINDIR/sphexp        <  in
+      @ iz++
+    end
+  endif
+
+  #--------------------------------------------------------------
+  #-- Step 1b
+  #--
+  #-- Catting each layer into a single SPH file
+  if ( $do_step1b == 1 ) then
+    #-- Cat SPH files
+    foreach sph ( inpm.?.sph inpm.??.sph inpm.???.sph )
+      set n = $sph:r:e
+      if ($n == $first_layer) then
+        /bin/cp $sph ll.sph
+      else
+        #-- ll.sph = ll.sph + $sph
+        echo ll.sph       >  in
+        echo $sph         >> in
+        echo dummy.sph    >> in
+        $BINDIR/sphadd        < in  > out_sphadd
+        /bin/mv dummy.sph ll.sph
+      endif
+    end
+    /bin/mv ll.sph inpm.SP${degree}.$name.repar.sph
+    cp inpm.SP${degree}.$name.repar.sph $gdir/
+    /bin/rm inpm.?.sph inpm.??.sph inpm.???.sph out_sphadd
+   /bin/rm fort.103 in inpm inpm.a inpm.evc inpm.raw out tmp.evc
+  endif
+
+  #-- The file "inpm.SP${degree}.$name.repar.sph" is the geodynamics file
+  #-- projected into the sp12rts parameterisation
+  #-- Where $name is both $name_dvs and $name_dvp, resulting in two files.
+  end
+endif
+
+#--------------------------------------------------------------
+#-- Step 2
+#--
+#-- Adding the two SPH files together to one SPT file with a new header
+if ( $do_step2 == 1 ) then
+
+  set vsfile = inpm.SP${degree}.${names}.dvs.repar.sph
+  set vpfile = inpm.SP${degree}.${names}.dvp.repar.sph
+
+  awk '{if (NR>1) print $0}' $vsfile > dumvs
+  awk '{if (NR>1) print $0}' $vpfile > dumvp
+
+  cat $header dumvs dumvp > inpm.SP${degree}.${names}.repar.spt
+  cp inpm.SP${degree}.${names}.repar.spt $gdir/
+endif
+
+#--------------------------------------------------------------
+#-- Step 3
+#--
+#-- Convolving "inpm.SP${degree}.${names}.repar.spt" with the resolution matrix
+#-- for both S-wave and P-wave velocity structure
+if ( $do_step3 == 1 ) then
+
+  echo $evcfl            			>  in
+  echo inpm.SP${degree}.${names}.repar.spt 	>> in
+  echo oupm             			>> in
+  echo $eps     			        >> in
+  echo $wtfile        				>> in
+  $BINDIR/mk3d_res_ESEP  			<  in
+
+  echo oupm.spt > in
+  $BINDIR/spt2sph < in
+
+  /bin/mv oupm..ES.sph oupm.SP${degree}.${names}.dvs.filt.sph
+  /bin/mv oupm..EP.sph oupm.SP${degree}.${names}.dvp.filt.sph
+  cp oupm.spt oupm.SP${degree}.${names}.filt.spt
+  cp oupm.SP${degree}.${names}.dvs.filt.sph oupm.SP${degree}.${names}.dvp.filt.sph oupm.SP${degree}.${names}.filt.spt $gdir/
+endif
+
+#-- The files "oupm.SP${degree}.$names.dvs.filt.sph" and "oupm.SP${degree}.$names.dvp.filt.sph" 
+#-- are the geodynamics files projected into the tomographic model parameterisation
+#-- and filtered for both S-wave and P-wave velocity structure
+#-- using the resolution matrix: m' = Rm.
+#-- See Ritsema et al. 2007, Koelemeijer et al., 2016
+
+#--------------------------------------------------------------
+#-- Step 4
+#--
+#-- clean up remainder of files
+if ( $do_clean == 1 ) then
+  /bin/rm in oupm.spt dumvs dumvp
+endif
+
+#--------------------------------------------------------------
+#-- Step 5
+#--
+#-- calculate slices for input points and depths
+#-- no interpolation occurs between depth layers, points are calculated at the input layer intervals...
+
+if ( $do_expand == 1 ) then
+
+  echo "Calculating velocity values for input point and depths"
+  mkdir -p $gdir/outputfiles
+
+  foreach name ( ${names}.dvs ) #${names}.dvp )
+    echo "working on model $name"
+
+    #-- Assuming again input points have the same distribution in each layer
+    #-- Using the points of the first layer as input to evaluate the repar and filtered files  
+    set nump=`wc $gdir/$model/${name}.layer.001.dat | awk '{print $1}' `
+    echo $nump > points.dat
+    #-- files need to be in lat(-90,90), lon (0,360)
+    awk '{print $2,$1}' $gdir/$model/${name}.layer.001.dat >> points.dat
+
+    #-- loop over depths of input layers
+    foreach depth ( `awk '{if (NR>1) print $1}' $gdir/$model/depth_layers.dat ` )
+      echo "working on expanding model $name for depth $depth"  
+
+      #-- expand repar and filtered files
+      foreach modelname ( inpm.SP${degree}.$name.repar oupm.SP${degree}.${name}.filt )
+
+        echo $modelname.sph  	 > sph2v_in
+        echo $depth 		>> sph2v_in
+
+        #-- code for expanding .sph files for input points and depths
+        #-- verified to give the same result as the use of depmap and raw2xyz-eqdist
+        $BINDIR/sph2v_input < sph2v_in > $gdir/outputfiles/${modelname}.${depth}.dat
+      end
+    end
+    rm -rf sph2v_in points.dat
+  end
+endif
+
+#--------------------------------------------------------------
+#-- Step 6
+#--
+#-- expand reparameterised and filtered files in slices for every 25 km 
+#-- also calculate RMS power of each model and correlation with tomography model SP12RTS automatically
+
+if ( $do_compare == 1 ) then
+
+  mkdir -p $gdir/comparefiles
+
+  #-- define depth sampling
+  set ndep=114
+  set ddep=25
+
+  #-- set parameters for lateral sampling
+  #-- lateral sampling is set by degree of filtering
+  #-- 5 degrees for SP12RTS
+  set lmin=1	
+  set lmax=$degree
+  set isp=$spacing
+
+  cp ${UTILS}/SP${degree}RTS/SP${degree}RTS..E?.sph .
+  mkdir -p $gdir/rawfiles
+  mkdir -p $gdir/slices
+  mkdir -p $gdir/pwrfiles
+
+  foreach name ( ${names}.dvs ${names}.dvp )
+    echo "working on model $name"
+
+    #-- run for repar, filt models and tomo model itself
+    foreach modelname ( inpm.SP${degree}.${name}.repar oupm.SP${degree}.${name}.filt SP${degree}RTS..ES SP${degree}RTS..EP )
+  
+      rm -rf $gdir/pwrfiles/${modelname}.pwr.dat $gdir/pwrfiles/${modelname}.pwr.deg.dat 
+      set depth=0
+
+      #-- loop over depths with ddep sampling
+      @ k = 0
+      while ( $k <= $ndep )
+
+        set depth=` echo $depth $ddep | awk '{print $1+$2}' `
+        set map=` echo $modelname $depth | awk '{if ($2<100) print $1".00"$2".raw" ; else if ($2<1000) print $1".0"$2".raw" ; else print $1"."$2".raw"}' `
+        rm -rf power.dat powerdeg.dat
+
+        #-- calc spherical harmonics for each depth evaluated 
+        echo ${modelname}.sph 	> depmap_in
+        echo $depth 		>> depmap_in
+
+        ${TOMOFILT}/bin/depmap 	< depmap_in
+
+        #-- and expand these in lat,lon files
+        echo ${map}	 	 > raw2xyz_in
+        echo ${map}.dat		>> raw2xyz_in
+        echo $isp	 	>> raw2xyz_in 
+        echo 0		 	>> raw2xyz_in
+        echo $lmin $lmax 	>> raw2xyz_in
+        echo 0		 	>> raw2xyz_in
+
+        ${TOMOFILT}/bin/raw2xyz-eqdist < raw2xyz_in
+
+        #-- calc total power for rawfiles (power.dat) 
+        echo ${map} 			> pwrspec.in
+
+        ${TOMOFILT}/bin/pwrspecsph 	< pwrspec.in
+        awk -v depth=$depth '{print depth,$1*100}' power.dat >> $gdir/pwrfiles/${modelname}.pwr.dat
+ 
+        #-- write out power per spherical harmonic degree (powerdeg.dat)
+        @ l = 0
+          while ( $l <= $lmax )
+
+          set pwr=`awk -v l=$l '{if ($1==l) printf "%.4e" , $2*100}' powerdeg.dat`
+          echo $depth $l $pwr >> $gdir/pwrfiles/${modelname}.pwr.deg.dat
+          @ l++
+        end
+
+        mv $map $gdir/rawfiles/
+        mv ${map}.dat $gdir/slices/
+
+        @ k++
+      end
+    end
+  end
+
+  #-- calculate correlation between tomography (reference model) and repar / filt models
+
+  foreach name ( ${names}.dvs ${names}.dvp )
+    echo "working on model $name"
+    set type=`echo $name | awk '{if ($1~/dvs/) print "ES"; else if ($1~/dvp/) print "EP"}'  `
+    set ref=SP${degree}RTS..${type}
+ 
+    echo ref model is $ref
+
+    foreach modelname ( inpm.SP${degree}.${name}.repar oupm.SP${degree}.${name}.filt )
+
+      rm -rf $gdir/comparefiles/corr.${ref}..${modelname}.corr.dat $gdir/comparefiles/corr.${ref}..${modelname}.corr.deg.dat
+      set depth=0
+
+      #-- loop over depths with ddep sampling
+      @ k = 0
+        while ( $k <= $ndep )
+
+        rm -rf corr.dat corrdeg.dat 
+
+        set depth=` echo $depth $ddep | awk '{print $1+$2}' `
+        set refmap=` echo $ref $depth | awk '{if ($2<100) print $1".00"$2".raw" ; else if ($2<1000) print $1".0"$2".raw" ; else print $1"."$2".raw"}' `
+        set modmap=` echo $modelname $depth | awk '{if ($2<100) print $1".00"$2".raw" ; else if ($2<1000) print $1".0"$2".raw" ; else print $1"."$2".raw"}' `
+
+        #-- calc total correlation between two maps (corr.dat)
+        echo $gdir/rawfiles/${refmap} 	> corr.in
+        echo $gdir/rawfiles/${modmap}	>> corr.in
+
+        ${TOMOFILT}/bin/correlatorsph 		< corr.in
+        awk -v depth=$depth '{print depth,$1}' corr.dat >> $gdir/comparefiles/corr.${ref}..${modelname}.corr.dat
+
+        #-- loop over spherical harmonics degree for correlation per degree (corr.deg.dat)
+        @ l = 0
+          while ( $l <= $lmax )
+          set corr=`awk -v l=$l '{if ($1==l) printf "%.4e" , $2}' corrdeg.dat`
+          echo $depth $l $corr >> $gdir/comparefiles/corr.${ref}..${modelname}.corr.deg.dat 
+          @ l++
+        end
+      @ k++
+      end
+    end
+  rm -rf depmap_in raw2xyz_in power.dat powerdeg.dat corr.dat corrdeg.dat S${degree}RTS.sph corr.in pwrspec.in 
+  end
+endif
+
